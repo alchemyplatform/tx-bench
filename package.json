@@ -1,0 +1,23 @@
+{
+  "name": "write-bench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "spike": "bun run scripts/premise-spike.ts"
+  },
+  "dependencies": {
+    "@account-kit/infra": "^4.88.4",
+    "@account-kit/smart-contracts": "^4.88.4",
+    "@zerodev/ecdsa-validator": "5.4.9",
+    "@zerodev/sdk": "5.5.10",
+    "commander": "15.0.0",
+    "permissionless": "0.3.6",
+    "viem": "^2.30.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  }
+}
