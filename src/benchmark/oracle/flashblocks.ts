@@ -72,6 +72,9 @@ type RecentFlashblock = {
   expiry: number
 }
 
+// If no message arrives for this long while watches are pending, treat subscription as stale
+const STALE_THRESHOLD_MS = 4_000
+
 export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory }): FlashblockOracle {
   const createWs = deps?.ws ?? ((url: string) => new WebSocket(url) as unknown as FlashblocksWs)
 
@@ -81,6 +84,7 @@ export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory })
   let subscriptionId: string | null = null
   let closed = false
   let reqId = 1
+  let lastMessageAt = 0
 
   // ── WebSocket lifecycle ───────────────────────────────────────────────────
 
@@ -134,6 +138,7 @@ export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory })
     const blockNumber = BigInt(blockNumberRaw)
     const flashblockIndex = payload.transactionIndex != null ? Number(BigInt(payload.transactionIndex)) : 0
     const tMs = performance.now()
+    lastMessageAt = tMs
 
     const allLogs: unknown[] = Array.isArray(payload.logs) ? payload.logs : []
 
@@ -198,6 +203,16 @@ export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory })
 
         // Safety net in case the eager socket was closed/never opened
         if (!socket) connect()
+
+        // Stale-subscription watchdog: if no message has arrived for STALE_THRESHOLD_MS
+        // while this watch is active, force-close to trigger a reconnect. The subscription
+        // can go silent (socket open, no data) without an onclose event.
+        const watchdogInterval = setInterval(() => {
+          if (closed || !pending.has(key)) { clearInterval(watchdogInterval); return }
+          if (performance.now() - lastMessageAt > STALE_THRESHOLD_MS && socket) {
+            socket.close()  // triggers onclose → reconnect
+          }
+        }, STALE_THRESHOLD_MS)
 
         // Schedule expiry sweep
         setTimeout(() => {
