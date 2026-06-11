@@ -48,7 +48,9 @@ cp .env.example .env
 | Pimlico  | `PIMLICO_API_KEY`, `PIMLICO_POLICY_ID` |
 | ZeroDev  | `ZERODEV_API_KEY`, `ZERODEV_PROJECT_ID` |
 
-Plus `NEUTRAL_RPC_URL` pointing to an independent Base mainnet HTTP RPC (must **not** be one of the benchmarked providers), and optionally `NEUTRAL_FLASHBLOCK_WS_URL` for a non-contestant flashblock endpoint.
+Plus `NEUTRAL_RPC_URL` pointing to an independent Base mainnet HTTP RPC (must **not** be Alchemy, Pimlico, or ZeroDev), and optionally `NEUTRAL_FLASHBLOCK_WS_URL` for a non-contestant flashblock endpoint.
+
+> **RPC routing:** `NEUTRAL_RPC_URL` is used exclusively by the canonical oracle (`getLogs`, `getBlockNumber`) — neutrality matters there. Provider-specific pre-flight reads (nonce lookups, contract code fetches) are routed separately: Pimlico reads use the Alchemy RPC (Pimlico's bundler URL does not support `eth_call`), and ZeroDev reads use ZeroDev's own RPC (it is a full node). This prevents the free public Base node from being rate-limited under concurrent load.
 
 ---
 
@@ -89,8 +91,11 @@ CLI
  └─ runPreflight()       chain ID agreement, neutrality guard, flashblock probe
  └─ runBenchmarkGrid()   N iterations × M providers, parallel per-iteration
       └─ sendSponsored()     adapter: build fresh account, submit userOp → hash
-      └─ canonicalOracle.watch()   shared getLogs poll → UserOperationEvent
-      └─ flashblockOracle.watch()  shared WS → newFlashblockTransactions
+      │    ├─ Alchemy  reads → Alchemy RPC
+      │    ├─ Pimlico  reads → Alchemy RPC (bundler URL does not support eth_call)
+      │    └─ ZeroDev  reads → ZeroDev RPC (full node)
+      └─ canonicalOracle.watch()   neutral getLogs poll → UserOperationEvent
+      └─ flashblockOracle.watch()  neutral WS → newFlashblockTransactions
       └─ buildRunRecord()          assemble RunRecord with block positions
  └─ aggregateRuns()      median/p95 per stage across N runs
  └─ renderTable()        human-readable table (4337 headline + intent-relay exhibit)

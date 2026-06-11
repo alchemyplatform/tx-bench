@@ -18,7 +18,7 @@ type KeyGen = typeof generatePrivateKey
 class PimlicoAccountClient implements AccountClient {
   constructor(
     private readonly rpcUrl: string,
-    private readonly publicRpcUrl: string,   // neutral or public RPC — Pimlico URL is bundler-only
+    private readonly publicRpcUrl: string,   // read-only RPC for eth_call — Pimlico URL is bundler-only
     private readonly sponsorshipPolicyId: string,
     private readonly createSafeAccount: SafeAccountFn,
     private readonly createPimlico: PimlicoClientFn,
@@ -31,7 +31,7 @@ class PimlicoAccountClient implements AccountClient {
     const privateKey = this.genKey()
     const owner = privateKeyToAccount(privateKey)
 
-    // Use neutral/public RPC for eth_call — Pimlico bundler URL does not support it
+    // Use read RPC for eth_call — Pimlico bundler URL does not support it
     const publicClient = createPublicClient({ chain: base, transport: http(this.publicRpcUrl) })
 
     const safeAccount = await this.createSafeAccount({
@@ -96,9 +96,12 @@ export function createPimlicoAdapter(deps?: {
       if (!cfg) {
         throw new Error('Pimlico provider not configured — set PIMLICO_API_KEY and PIMLICO_POLICY_ID')
       }
+      // Prefer Alchemy for reads: it has higher rate limits and Pimlico's bundler URL
+      // doesn't support eth_call. Falls back to neutral if Alchemy isn't configured.
+      const readRpcUrl = config.providers.alchemy?.rpcUrl ?? config.neutral.rpcUrl
       return new PimlicoAccountClient(
         cfg.rpcUrl,
-        config.neutral.rpcUrl,
+        readRpcUrl,
         cfg.policyId,
         createSafeAccount,
         createPimlico,

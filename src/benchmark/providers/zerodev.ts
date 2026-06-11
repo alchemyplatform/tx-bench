@@ -25,7 +25,7 @@ type HttpFn = typeof http
 class ZeroDevAccountClient implements AccountClient {
   constructor(
     private readonly rpcUrl: string,
-    private readonly publicRpcUrl: string,   // neutral/public RPC for eth_call
+    private readonly publicRpcUrl: string,   // read-only RPC for eth_call
     private readonly protocolClass: ProtocolClass,
     private readonly createValidator: ValidatorFn,
     private readonly createAccount: AccountFn,
@@ -41,7 +41,7 @@ class ZeroDevAccountClient implements AccountClient {
     const privateKey = this.genKey()
     const owner = privateKeyToAccount(privateKey)
 
-    // Use neutral/public RPC for eth_call — ZeroDev bundler URL may not support it
+    // Use ZeroDev's RPC for eth_call — it's a full node and avoids rate-limiting the public endpoint
     const publicClient = createPublicClient({ chain: base, transport: this.httpFn(this.publicRpcUrl) })
 
     const ecdsaValidator = await this.createValidator(publicClient, {
@@ -117,9 +117,10 @@ export function createZeroDevAdapter(
         throw new Error('ZeroDev provider not configured — set ZERODEV_API_KEY and ZERODEV_PROJECT_ID')
       }
       const rpcUrl = cfg.rpcUrl + urlSuffix
+      // ZeroDev's RPC is a full node — use it for reads to avoid rate-limiting the public endpoint
       return new ZeroDevAccountClient(
         rpcUrl,
-        config.neutral.rpcUrl,
+        cfg.rpcUrl,
         protocolClass,
         createValidator,
         createAccount,

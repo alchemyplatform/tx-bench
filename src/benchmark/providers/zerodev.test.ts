@@ -132,15 +132,19 @@ describe('zerodev — sendSponsored (mocked deps)', () => {
     await (await kernelAdapter.buildAccountClient(BASE_CONFIG)).sendSponsored()
     await (await ultraAdapter.buildAccountClient(BASE_CONFIG)).sendSponsored()
 
-    // httpFn is called for public client (neutral RPC) + paymaster + bundler.
-    // Filter to ZeroDev-specific URLs (contain 'zerodev') to isolate the bundler calls.
+    // httpFn is called for public client (uses base rpcUrl for reads) + paymaster + bundler.
+    // Bundler/paymaster for UltraRelay must use ?provider=ULTRA_RELAY; reads use base URL.
     const baseRpcUrl = BASE_CONFIG.providers.zerodev!.rpcUrl
     const kernelZdUrls = kernelMocks.capturedHttpUrls.filter(u => u.includes('zerodev'))
     const ultraZdUrls = ultraMocks.capturedHttpUrls.filter(u => u.includes('zerodev'))
+    const ultraBundlerUrls = ultraZdUrls.filter(u => u.includes('ULTRA_RELAY'))
 
     expect(kernelZdUrls.every(u => !u.includes('ULTRA_RELAY'))).toBe(true)
-    expect(ultraZdUrls.every(u => u === baseRpcUrl + '?provider=ULTRA_RELAY')).toBe(true)
-    expect(ultraZdUrls.length).toBeGreaterThan(0)
+    expect(ultraBundlerUrls.length).toBeGreaterThan(0)
+    expect(ultraBundlerUrls.every(u => u === baseRpcUrl + '?provider=ULTRA_RELAY')).toBe(true)
+    // Reads use the base URL (no suffix) — verify they're present and suffix-free
+    const ultraReadUrls = ultraZdUrls.filter(u => !u.includes('ULTRA_RELAY'))
+    expect(ultraReadUrls.every(u => u === baseRpcUrl)).toBe(true)
   })
 
   it('passes entryPoint as explicit { address, version } object to both validator and account', async () => {
