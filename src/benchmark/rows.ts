@@ -45,6 +45,20 @@ const ROW_DEFINITIONS: readonly RowDefinition[] = [
     accountTypeLabel: 'Kernel v3',
     requiredEnv: ['ZERODEV_API_KEY', 'ZERODEV_PROJECT_ID'],
   },
+  {
+    id: 'alchemy-mav2-bso',
+    label: 'Alchemy (MAv2 BSO)',
+    protocolClass: '4337-bundler',
+    accountTypeLabel: 'Modular Account v2 (BSO)',
+    requiredEnv: ['ALCHEMY_API_KEY', 'ALCHEMY_BSO_POLICY_ID'],
+  },
+  {
+    id: 'alchemy-wallet-sendcalls',
+    label: 'Alchemy (Wallet SendCalls)',
+    protocolClass: 'wallet-sendcalls',
+    accountTypeLabel: 'Smart Wallet (EIP-7702)',
+    requiredEnv: ['ALCHEMY_API_KEY', 'ALCHEMY_POLICY_ID'],
+  },
 ] as const
 
 export function buildRows(env: EnvSource): ProviderRow[] {

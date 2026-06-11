@@ -24,6 +24,7 @@ const rawEnvSchema = z.object({
   // Alchemy
   ALCHEMY_API_KEY: z.string().optional(),
   ALCHEMY_POLICY_ID: z.string().optional(),
+  ALCHEMY_BSO_POLICY_ID: z.string().optional(),
   ALCHEMY_RPC_URL: httpsUrl.optional(),
 
   // Pimlico
@@ -52,7 +53,7 @@ const rawEnvSchema = z.object({
 
 // ── Typed config ──────────────────────────────────────────────────────────────
 
-export type AlchemyConfig = { apiKey: string; policyId: string; rpcUrl: string }
+export type AlchemyConfig = { apiKey: string; policyId: string; rpcUrl: string; bsoPolicyId?: string | null }
 export type PimlicoConfig = { apiKey: string; policyId: string; rpcUrl: string }
 export type ZeroDevConfig = { apiKey: string; projectId: string; rpcUrl: string }
 
@@ -117,6 +118,7 @@ export function loadConfig(env: EnvSource = process.env): Config {
         rpcUrl:
           raw.ALCHEMY_RPC_URL ??
           `https://base-mainnet.g.alchemy.com/v2/${normalized.ALCHEMY_API_KEY!}`,
+        bsoPolicyId: normalized.ALCHEMY_BSO_POLICY_ID ?? null,
       }
     : null
 

@@ -83,11 +83,14 @@ export async function runBenchmarkGrid(
           const fromBlock = await canonicalOracle.getBlockNumber()
 
           const sponsored = await client.sendSponsored()
-          const acceptedAtMs = performance.now()
+          const acceptedAtMs = sponsored.acceptedAtMs ?? performance.now()
 
-          // Both oracle watches run concurrently
+          // For wallet-sendcalls providers, canonical is resolved inline during sendSponsored().
+          // For all others, watch the neutral oracle concurrently with the flashblock oracle.
           const [canonical, preconf] = await Promise.all([
-            canonicalOracle.watch(sponsored.userOpHash, fromBlock, config.timeouts.canonicalMs),
+            sponsored.inlineCanonical
+              ? Promise.resolve(sponsored.inlineCanonical)
+              : canonicalOracle.watch(sponsored.userOpHash, fromBlock, config.timeouts.canonicalMs),
             flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs),
           ])
 

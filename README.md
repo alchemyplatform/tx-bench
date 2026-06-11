@@ -44,10 +44,12 @@ cp .env.example .env
 
 | Provider | Env var(s) |
 |----------|-----------|
-| Alchemy (Light Account v2)    | `ALCHEMY_API_KEY`, `ALCHEMY_POLICY_ID` |
-| Alchemy (Modular Account v2)  | `ALCHEMY_API_KEY`, `ALCHEMY_POLICY_ID` |
-| Pimlico (Safe)                | `PIMLICO_API_KEY`, `PIMLICO_POLICY_ID` |
-| ZeroDev (Kernel / UltraRelay) | `ZERODEV_API_KEY`, `ZERODEV_PROJECT_ID` |
+| Alchemy (Light Account v2)         | `ALCHEMY_API_KEY`, `ALCHEMY_POLICY_ID` |
+| Alchemy (Modular Account v2)       | `ALCHEMY_API_KEY`, `ALCHEMY_POLICY_ID` |
+| Alchemy (MAv2 BSO)                 | `ALCHEMY_API_KEY`, `ALCHEMY_BSO_POLICY_ID` |
+| Alchemy (Wallet SendCalls, EIP-7702) | `ALCHEMY_API_KEY`, `ALCHEMY_POLICY_ID` |
+| Pimlico (Safe)                     | `PIMLICO_API_KEY`, `PIMLICO_POLICY_ID` |
+| ZeroDev (Kernel / UltraRelay)      | `ZERODEV_API_KEY`, `ZERODEV_PROJECT_ID` |
 
 Plus `NEUTRAL_RPC_URL` pointing to an independent Base mainnet HTTP RPC (must **not** be Alchemy, Pimlico, or ZeroDev), and optionally `NEUTRAL_FLASHBLOCK_WS_URL` for a non-contestant flashblock endpoint.
 
@@ -92,10 +94,12 @@ CLI
  └─ runPreflight()       chain ID agreement, neutrality guard, flashblock probe
  └─ runBenchmarkGrid()   N iterations × M providers, parallel per-iteration
       └─ sendSponsored()     adapter: build fresh account, submit userOp → hash
-      │    ├─ Alchemy LAv2 / MAv2 reads → Alchemy RPC
-      │    ├─ Pimlico  reads → Alchemy RPC (bundler URL does not support eth_call)
-      │    └─ ZeroDev  reads → ZeroDev RPC (full node)
-      └─ canonicalOracle.watch()   neutral getLogs poll → UserOperationEvent
+      │    ├─ Alchemy LAv2 / MAv2       reads → Alchemy RPC
+      │    ├─ Alchemy MAv2 BSO          reads → Alchemy RPC; bundler carries x-alchemy-policy-id header
+      │    ├─ Alchemy Wallet SendCalls  wallet_sendCalls → waitForCallsStatus (inline canonical)
+      │    ├─ Pimlico                   reads → Alchemy RPC (bundler URL does not support eth_call)
+      │    └─ ZeroDev                   reads → ZeroDev RPC (full node)
+      └─ canonicalOracle.watch()   neutral getLogs poll → UserOperationEvent (skipped for wallet-sendcalls)
       └─ flashblockOracle.watch()  neutral WS → newFlashblockTransactions
       └─ buildRunRecord()          assemble RunRecord with block positions
  └─ aggregateRuns()      median/p95 per stage across N runs

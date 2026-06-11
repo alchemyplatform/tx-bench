@@ -21,6 +21,7 @@ describe('loadConfig', () => {
       apiKey: 'alchemy-key',
       policyId: 'alchemy-policy',
       rpcUrl: 'https://base-mainnet.g.alchemy.com/v2/alchemy-key',
+      bsoPolicyId: null,
     })
     expect(cfg.providers.pimlico).toEqual({
       apiKey: 'pimlico-key',

@@ -14,7 +14,7 @@ export type BlockPosition = {
   flashblockIndex?: number     // position within the block's flashblock sequence (preconf only)
 }
 
-export type ProtocolClass = '4337-bundler' | 'intent-relay'
+export type ProtocolClass = '4337-bundler' | 'intent-relay' | 'wallet-sendcalls'
 
 export type ProviderRow = {
   readonly id: string

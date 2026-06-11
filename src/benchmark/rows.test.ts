@@ -6,6 +6,7 @@ const ALCHEMY_ONLY = { ALCHEMY_API_KEY: 'key', ALCHEMY_POLICY_ID: 'policy' }
 const FULL_ENV = {
   ALCHEMY_API_KEY: 'key',
   ALCHEMY_POLICY_ID: 'policy',
+  ALCHEMY_BSO_POLICY_ID: 'bso-policy',
   PIMLICO_API_KEY: 'pkey',
   PIMLICO_POLICY_ID: 'ppolicy',
   ZERODEV_API_KEY: 'zkey',
@@ -45,7 +46,7 @@ describe('buildRows', () => {
   })
 
   it('exposes a valid protocolClass on every row', () => {
-    const valid = new Set(['4337-bundler', 'intent-relay'])
+    const valid = new Set(['4337-bundler', 'intent-relay', 'wallet-sendcalls'])
     for (const row of buildRows({})) {
       expect(valid.has(row.protocolClass)).toBe(true)
     }

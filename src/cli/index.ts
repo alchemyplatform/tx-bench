@@ -10,6 +10,8 @@ import { buildOutput, serializeOutput } from '../benchmark/output.js'
 import { renderTable } from './render.js'
 import { alchemyAdapter } from '../benchmark/providers/alchemy.js'
 import { alchemyMAv2Adapter } from '../benchmark/providers/alchemy-mav2.js'
+import { alchemyMAv2BSOAdapter } from '../benchmark/providers/alchemy-mav2-bso.js'
+import { alchemyWalletSendCallsAdapter } from '../benchmark/providers/alchemy-wallet-sendcalls.js'
 import { pimlicoAdapter } from '../benchmark/providers/pimlico.js'
 import { zerodevKernelAdapter, zerodevUltraRelayAdapter } from '../benchmark/providers/zerodev.js'
 import { createPublicClient, http } from 'viem'
@@ -18,7 +20,7 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { basename, extname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
 
-const ALL_ADAPTERS = [alchemyAdapter, alchemyMAv2Adapter, pimlicoAdapter, zerodevKernelAdapter, zerodevUltraRelayAdapter]
+const ALL_ADAPTERS = [alchemyAdapter, alchemyMAv2Adapter, alchemyMAv2BSOAdapter, alchemyWalletSendCallsAdapter, pimlicoAdapter, zerodevKernelAdapter, zerodevUltraRelayAdapter]
 const WEB_ROOT = fileURLToPath(new URL('../../web/', import.meta.url))
 
 type DashboardOptions = {

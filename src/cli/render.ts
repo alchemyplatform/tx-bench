@@ -40,6 +40,7 @@ export function renderTable(output: RunOutput): string {
 
   const bundlerResults = results.filter(r => r.row.protocolClass === '4337-bundler')
   const relayResults = results.filter(r => r.row.protocolClass === 'intent-relay')
+  const walletResults = results.filter(r => r.row.protocolClass === 'wallet-sendcalls')
 
   // ── 4337 Bundlers headline table ────────────────────────────────────────────
   lines.push('── 4337 Bundlers (same-class comparison) ' + hr(31))
@@ -84,6 +85,30 @@ export function renderTable(output: RunOutput): string {
     lines.push(hr(72))
 
     for (const { row, metrics } of relayResults) {
+      const failNote = metrics.failureCount > 0 ? ` [${metrics.failureCount}/${metrics.runCount} failed]` : ''
+      lines.push(
+        col(row.label + failNote, 28) +
+        col(fmtStage(metrics.stages.submit), 22) +
+        col(fmtStage(metrics.stages.canonical), 22)
+      )
+    }
+  }
+
+  // ── Wallet SendCalls exhibit ─────────────────────────────────────────────────
+  if (walletResults.length > 0) {
+    lines.push('')
+    lines.push('── Wallet SendCalls Exhibit (EIP-7702, different protocol class — not comparable to above) ' + hr(0))
+    lines.push('   Uses wallet_sendCalls (EIP-5792) with EIP-7702 delegation, not ERC-4337.')
+    lines.push('   Submit = time to call ID; Canonical = time from call ID to tx mined.')
+    lines.push('')
+    lines.push(
+      col('Provider', 28) +
+      col('Submit  (med/p95)', 22) +
+      col('Canonical (med/p95)', 22)
+    )
+    lines.push(hr(72))
+
+    for (const { row, metrics } of walletResults) {
       const failNote = metrics.failureCount > 0 ? ` [${metrics.failureCount}/${metrics.runCount} failed]` : ''
       lines.push(
         col(row.label + failNote, 28) +
