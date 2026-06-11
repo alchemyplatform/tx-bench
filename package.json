@@ -10,6 +10,10 @@
   "dependencies": {
     "@account-kit/infra": "^4.88.4",
     "@account-kit/smart-contracts": "^4.88.4",
+    "@alchemy/aa-infra": "5.0.4",
+    "@alchemy/common": "5.0.4",
+    "@alchemy/smart-accounts": "5.0.4",
+    "@alchemy/wallet-apis": "5.0.4",
     "@zerodev/ecdsa-validator": "5.4.9",
     "@zerodev/sdk": "5.5.10",
     "commander": "15.0.0",
