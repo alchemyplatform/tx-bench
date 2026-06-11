@@ -1,0 +1,340 @@
+{
+  "env": {
+    "toolVersion": "0.1.0",
+    "gitCommit": "sample",
+    "runnerRegion": "sample-local",
+    "generatedAt": "2026-06-11T14:00:00.000Z"
+  },
+  "config": {
+    "network": "base-mainnet",
+    "runCount": 3,
+    "providers": {
+      "alchemy": "[REDACTED]",
+      "pimlico": "[REDACTED]",
+      "zerodev": "[REDACTED]"
+    },
+    "neutral": {
+      "rpcUrl": "https://neutral.example",
+      "flashblockWsUrl": "[REDACTED]"
+    }
+  },
+  "preconfAvailable": true,
+  "results": [
+    {
+      "row": {
+        "id": "alchemy-light-account",
+        "label": "Alchemy (Light Account)",
+        "protocolClass": "4337-bundler",
+        "accountTypeLabel": "Light Account v2",
+        "requiredEnv": ["ALCHEMY_API_KEY", "ALCHEMY_POLICY_ID"],
+        "runnable": true,
+        "missingEnv": []
+      },
+      "records": [
+        {
+          "provider": "alchemy-light-account",
+          "runIndex": 0,
+          "protocolClass": "4337-bundler",
+          "accountTypeLabel": "Light Account v2",
+          "accountAddress": "0x1000000000000000000000000000000000000001",
+          "userOpHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "stages": {
+            "submit": { "status": "ok", "ms": 176 },
+            "preconf": { "status": "ok", "ms": 342 },
+            "canonical": { "status": "ok", "ms": 1708 },
+            "providerReceipt": { "status": "ok", "ms": 2064 }
+          },
+          "blockPositions": {
+            "preconf": { "blockNumber": "30450001", "flashblockIndex": 2 },
+            "canonical": { "blockNumber": "30450001", "txHash": "0x1111111111111111111111111111111111111111111111111111111111111111" }
+          },
+          "gas": { "gasUsed": "218400", "effectiveGasPrice": "12000000", "totalFee": "2620800000000" }
+        },
+        {
+          "provider": "alchemy-light-account",
+          "runIndex": 1,
+          "protocolClass": "4337-bundler",
+          "accountTypeLabel": "Light Account v2",
+          "accountAddress": "0x1000000000000000000000000000000000000002",
+          "userOpHash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "stages": {
+            "submit": { "status": "ok", "ms": 182 },
+            "preconf": { "status": "ok", "ms": 364 },
+            "canonical": { "status": "ok", "ms": 1780 },
+            "providerReceipt": { "status": "ok", "ms": 2128 }
+          },
+          "blockPositions": {
+            "preconf": { "blockNumber": "30450004", "flashblockIndex": 3 },
+            "canonical": { "blockNumber": "30450004", "txHash": "0x2222222222222222222222222222222222222222222222222222222222222222" }
+          },
+          "gas": { "gasUsed": "221900", "effectiveGasPrice": "11800000", "totalFee": "2618420000000" }
+        },
+        {
+          "provider": "alchemy-light-account",
+          "runIndex": 2,
+          "protocolClass": "4337-bundler",
+          "accountTypeLabel": "Light Account v2",
+          "accountAddress": "0x1000000000000000000000000000000000000003",
+          "userOpHash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "stages": {
+            "submit": { "status": "ok", "ms": 210 },
+            "preconf": { "status": "ok", "ms": 412 },
+            "canonical": { "status": "ok", "ms": 1920 },
+            "providerReceipt": { "status": "ok", "ms": 2310 }
+          },
+          "blockPositions": {
+            "preconf": { "blockNumber": "30450006", "flashblockIndex": 5 },
+            "canonical": { "blockNumber": "30450006", "txHash": "0x3333333333333333333333333333333333333333333333333333333333333333" }
+          },
+          "gas": { "gasUsed": "219650", "effectiveGasPrice": "11900000", "totalFee": "2613835000000" }
+        }
+      ],
+      "metrics": {
+        "provider": "alchemy-light-account",
+        "protocolClass": "4337-bundler",
+        "accountTypeLabel": "Light Account v2",
+        "runCount": 3,
+        "failureCount": 0,
+        "stages": {
+          "submit": { "median": 182, "p95": 210, "count": 3 },
+          "preconf": { "median": 364, "p95": 412, "count": 3 },
+          "canonical": { "median": 1780, "p95": 1920, "count": 3 },
+          "providerReceipt": { "median": 2128, "p95": 2310, "count": 3 }
+        }
+      }
+    },
+    {
+      "row": {
+        "id": "pimlico-safe",
+        "label": "Pimlico (Safe)",
+        "protocolClass": "4337-bundler",
+        "accountTypeLabel": "Safe",
+        "requiredEnv": ["PIMLICO_API_KEY", "PIMLICO_POLICY_ID"],
+        "runnable": true,
+        "missingEnv": []
+      },
+      "records": [
+        {
+          "provider": "pimlico-safe",
+          "runIndex": 0,
+          "protocolClass": "4337-bundler",
+          "accountTypeLabel": "Safe",
+          "accountAddress": "0x2000000000000000000000000000000000000001",
+          "userOpHash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "stages": {
+            "submit": { "status": "ok", "ms": 260 },
+            "preconf": { "status": "ok", "ms": 390 },
+            "canonical": { "status": "ok", "ms": 1900 },
+            "providerReceipt": { "status": "ok", "ms": 2480 }
+          },
+          "blockPositions": {
+            "preconf": { "blockNumber": "30450002", "flashblockIndex": 4 },
+            "canonical": { "blockNumber": "30450002", "txHash": "0x4444444444444444444444444444444444444444444444444444444444444444" }
+          }
+        },
+        {
+          "provider": "pimlico-safe",
+          "runIndex": 1,
+          "protocolClass": "4337-bundler",
+          "accountTypeLabel": "Safe",
+          "accountAddress": "0x2000000000000000000000000000000000000002",
+          "userOpHash": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "stages": {
+            "submit": { "status": "failed", "reason": "bundler rejected sample operation" },
+            "preconf": { "status": "not-observed" },
+            "canonical": { "status": "not-observed" },
+            "providerReceipt": { "status": "not-observed" }
+          },
+          "blockPositions": {},
+          "error": "bundler rejected sample operation"
+        },
+        {
+          "provider": "pimlico-safe",
+          "runIndex": 2,
+          "protocolClass": "4337-bundler",
+          "accountTypeLabel": "Safe",
+          "accountAddress": "0x2000000000000000000000000000000000000003",
+          "userOpHash": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "stages": {
+            "submit": { "status": "ok", "ms": 330 },
+            "preconf": { "status": "ok", "ms": 466 },
+            "canonical": { "status": "ok", "ms": 2260 },
+            "providerReceipt": { "status": "ok", "ms": 2810 }
+          },
+          "blockPositions": {
+            "preconf": { "blockNumber": "30450007", "flashblockIndex": 5 },
+            "canonical": { "blockNumber": "30450007", "txHash": "0x5555555555555555555555555555555555555555555555555555555555555555" }
+          }
+        }
+      ],
+      "metrics": {
+        "provider": "pimlico-safe",
+        "protocolClass": "4337-bundler",
+        "accountTypeLabel": "Safe",
+        "runCount": 3,
+        "failureCount": 1,
+        "stages": {
+          "submit": { "median": 295, "p95": 330, "count": 2 },
+          "preconf": { "median": 428, "p95": 466, "count": 2 },
+          "canonical": { "median": 2080, "p95": 2260, "count": 2 },
+          "providerReceipt": { "median": 2645, "p95": 2810, "count": 2 }
+        }
+      }
+    },
+    {
+      "row": {
+        "id": "zerodev-kernel",
+        "label": "ZeroDev (Kernel)",
+        "protocolClass": "4337-bundler",
+        "accountTypeLabel": "Kernel v3",
+        "requiredEnv": ["ZERODEV_API_KEY", "ZERODEV_PROJECT_ID"],
+        "runnable": true,
+        "missingEnv": []
+      },
+      "records": [
+        {
+          "provider": "zerodev-kernel",
+          "runIndex": 0,
+          "protocolClass": "4337-bundler",
+          "accountTypeLabel": "Kernel v3",
+          "accountAddress": "0x3000000000000000000000000000000000000001",
+          "userOpHash": "0x9999999999999999999999999999999999999999999999999999999999999999",
+          "stages": {
+            "submit": { "status": "ok", "ms": 238 },
+            "preconf": { "status": "ok", "ms": 372 },
+            "canonical": { "status": "ok", "ms": 1860 },
+            "providerReceipt": { "status": "ok", "ms": 2328 }
+          },
+          "blockPositions": {
+            "preconf": { "blockNumber": "30450003", "flashblockIndex": 3 },
+            "canonical": { "blockNumber": "30450003", "txHash": "0x6666666666666666666666666666666666666666666666666666666666666666" }
+          }
+        },
+        {
+          "provider": "zerodev-kernel",
+          "runIndex": 1,
+          "protocolClass": "4337-bundler",
+          "accountTypeLabel": "Kernel v3",
+          "accountAddress": "0x3000000000000000000000000000000000000002",
+          "userOpHash": "0x8888888888888888888888888888888888888888888888888888888888888888",
+          "stages": {
+            "submit": { "status": "ok", "ms": 224 },
+            "preconf": { "status": "ok", "ms": 350 },
+            "canonical": { "status": "ok", "ms": 1814 },
+            "providerReceipt": { "status": "ok", "ms": 2290 }
+          },
+          "blockPositions": {
+            "preconf": { "blockNumber": "30450005", "flashblockIndex": 2 },
+            "canonical": { "blockNumber": "30450005", "txHash": "0x7777777777777777777777777777777777777777777777777777777777777777" }
+          }
+        },
+        {
+          "provider": "zerodev-kernel",
+          "runIndex": 2,
+          "protocolClass": "4337-bundler",
+          "accountTypeLabel": "Kernel v3",
+          "accountAddress": "0x3000000000000000000000000000000000000003",
+          "userOpHash": "0x7777777777777777777777777777777777777777777777777777777777777777",
+          "stages": {
+            "submit": { "status": "ok", "ms": 252 },
+            "preconf": { "status": "ok", "ms": 416 },
+            "canonical": { "status": "ok", "ms": 1990 },
+            "providerReceipt": { "status": "ok", "ms": 2408 }
+          },
+          "blockPositions": {
+            "preconf": { "blockNumber": "30450008", "flashblockIndex": 4 },
+            "canonical": { "blockNumber": "30450008", "txHash": "0x8888888888888888888888888888888888888888888888888888888888888888" }
+          }
+        }
+      ],
+      "metrics": {
+        "provider": "zerodev-kernel",
+        "protocolClass": "4337-bundler",
+        "accountTypeLabel": "Kernel v3",
+        "runCount": 3,
+        "failureCount": 0,
+        "stages": {
+          "submit": { "median": 238, "p95": 252, "count": 3 },
+          "preconf": { "median": 372, "p95": 416, "count": 3 },
+          "canonical": { "median": 1860, "p95": 1990, "count": 3 },
+          "providerReceipt": { "median": 2328, "p95": 2408, "count": 3 }
+        }
+      }
+    },
+    {
+      "row": {
+        "id": "zerodev-ultrarelay",
+        "label": "ZeroDev (UltraRelay)",
+        "protocolClass": "intent-relay",
+        "accountTypeLabel": "Kernel v3",
+        "requiredEnv": ["ZERODEV_API_KEY", "ZERODEV_PROJECT_ID"],
+        "runnable": true,
+        "missingEnv": []
+      },
+      "records": [
+        {
+          "provider": "zerodev-ultrarelay",
+          "runIndex": 0,
+          "protocolClass": "intent-relay",
+          "accountTypeLabel": "Kernel v3",
+          "accountAddress": "0x4000000000000000000000000000000000000001",
+          "userOpHash": "0x6666666666666666666666666666666666666666666666666666666666666666",
+          "stages": {
+            "submit": { "status": "ok", "ms": 112 },
+            "preconf": { "status": "not-observed" },
+            "canonical": { "status": "ok", "ms": 2410 },
+            "providerReceipt": { "status": "not-observed" }
+          },
+          "blockPositions": {
+            "canonical": { "blockNumber": "30450009", "txHash": "0x9999999999999999999999999999999999999999999999999999999999999999" }
+          }
+        },
+        {
+          "provider": "zerodev-ultrarelay",
+          "runIndex": 1,
+          "protocolClass": "intent-relay",
+          "accountTypeLabel": "Kernel v3",
+          "accountAddress": "0x4000000000000000000000000000000000000002",
+          "userOpHash": "0x5555555555555555555555555555555555555555555555555555555555555555",
+          "stages": {
+            "submit": { "status": "ok", "ms": 115 },
+            "preconf": { "status": "not-observed" },
+            "canonical": { "status": "ok", "ms": 2480 },
+            "providerReceipt": { "status": "not-observed" }
+          },
+          "blockPositions": {
+            "canonical": { "blockNumber": "30450011", "txHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+          }
+        },
+        {
+          "provider": "zerodev-ultrarelay",
+          "runIndex": 2,
+          "protocolClass": "intent-relay",
+          "accountTypeLabel": "Kernel v3",
+          "accountAddress": "0x4000000000000000000000000000000000000003",
+          "userOpHash": "0x4444444444444444444444444444444444444444444444444444444444444444",
+          "stages": {
+            "submit": { "status": "ok", "ms": 128 },
+            "preconf": { "status": "not-observed" },
+            "canonical": { "status": "ok", "ms": 2608 },
+            "providerReceipt": { "status": "not-observed" }
+          },
+          "blockPositions": {
+            "canonical": { "blockNumber": "30450014", "txHash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+          }
+        }
+      ],
+      "metrics": {
+        "provider": "zerodev-ultrarelay",
+        "protocolClass": "intent-relay",
+        "accountTypeLabel": "Kernel v3",
+        "runCount": 3,
+        "failureCount": 0,
+        "stages": {
+          "submit": { "median": 115, "p95": 128, "count": 3 },
+          "canonical": { "median": 2480, "p95": 2608, "count": 3 }
+        }
+      }
+    }
+  ]
+}

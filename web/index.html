@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>write-bench dashboard</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">write-bench</p>
+        <h1>Provider comparison</h1>
+      </div>
+      <div class="header-actions">
+        <span id="sourceBadge" class="status-pill">Loading</span>
+        <label class="button" for="jsonInput">
+          <span aria-hidden="true">+</span>
+          Import JSON
+        </label>
+        <input id="jsonInput" type="file" accept="application/json,.json">
+      </div>
+    </header>
+
+    <main>
+      <section class="overview-band">
+        <div class="run-meta" id="runMeta"></div>
+        <div class="summary-grid" id="summaryGrid"></div>
+      </section>
+
+      <section class="workspace">
+        <div class="workspace-toolbar">
+          <div>
+            <p class="section-kicker">Analysis</p>
+            <h2>Stage medians</h2>
+          </div>
+          <div class="segmented-control" aria-label="Protocol filter">
+            <button class="segment active" type="button" data-filter="4337-bundler">4337 bundlers</button>
+            <button class="segment" type="button" data-filter="intent-relay">Intent relay</button>
+            <button class="segment" type="button" data-filter="all">All</button>
+          </div>
+        </div>
+
+        <div class="comparison-layout">
+          <section class="chart-surface" aria-labelledby="chartTitle">
+            <div class="surface-header">
+              <div>
+                <h3 id="chartTitle">Latency comparison</h3>
+                <p id="chartSubtitle"></p>
+              </div>
+              <span class="mode-chip" id="preconfMode"></span>
+            </div>
+            <div id="chart" class="chart"></div>
+          </section>
+
+          <aside class="provider-rail" aria-labelledby="providerRailTitle">
+            <div class="surface-header compact">
+              <div>
+                <h3 id="providerRailTitle">Providers</h3>
+                <p id="providerCount"></p>
+              </div>
+            </div>
+            <div id="providerList" class="provider-list"></div>
+          </aside>
+        </div>
+
+        <section class="detail-surface" aria-labelledby="detailTitle">
+          <div class="surface-header">
+            <div>
+              <h3 id="detailTitle">Run detail</h3>
+              <p id="detailSubtitle"></p>
+            </div>
+            <button id="downloadJson" class="ghost-button" type="button">
+              <span aria-hidden="true">v</span>
+              JSON
+            </button>
+          </div>
+          <div id="detail" class="detail"></div>
+        </section>
+      </section>
+    </main>
+
+    <template id="errorTemplate">
+      <div class="empty-state">
+        <h2>Unable to render this run</h2>
+        <p></p>
+      </div>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

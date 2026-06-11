@@ -13,9 +13,152 @@ import { pimlicoAdapter } from '../benchmark/providers/pimlico.js'
 import { zerodevKernelAdapter, zerodevUltraRelayAdapter } from '../benchmark/providers/zerodev.js'
 import { createPublicClient, http } from 'viem'
 import { base } from 'viem/chains'
-import { writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { basename, extname, join, resolve } from 'path'
+import { fileURLToPath } from 'url'
 
 const ALL_ADAPTERS = [alchemyAdapter, pimlicoAdapter, zerodevKernelAdapter, zerodevUltraRelayAdapter]
+const WEB_ROOT = fileURLToPath(new URL('../../web/', import.meta.url))
+
+type DashboardOptions = {
+  port?: string
+  host?: string
+}
+
+function parsePort(value: string | undefined): number {
+  if (!value) return 4173
+  const port = Number.parseInt(value, 10)
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    throw new Error(`Invalid port: ${value}`)
+  }
+  return port
+}
+
+function contentTypeFor(filePath: string): string {
+  switch (extname(filePath)) {
+    case '.html': return 'text/html; charset=utf-8'
+    case '.css': return 'text/css; charset=utf-8'
+    case '.js': return 'text/javascript; charset=utf-8'
+    case '.json': return 'application/json; charset=utf-8'
+    case '.svg': return 'image/svg+xml'
+    default: return 'application/octet-stream'
+  }
+}
+
+function jsonResponse(value: unknown): Response {
+  return new Response(JSON.stringify(value), {
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+  })
+}
+
+function resolveAssetPath(pathname: string): string | undefined {
+  const assetName = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.slice(1))
+  const assetPath = resolve(WEB_ROOT, assetName)
+  const rootPath = resolve(WEB_ROOT)
+
+  if (assetPath !== rootPath && !assetPath.startsWith(rootPath + '/')) {
+    return undefined
+  }
+
+  return assetPath
+}
+
+function readDashboardPayload(file: string | undefined): { json: string; source: Record<string, string | boolean> } {
+  if (!file) {
+    const samplePath = join(WEB_ROOT, 'sample-results.json')
+    const json = readFileSync(samplePath, 'utf8')
+    JSON.parse(json)
+    return {
+      json,
+      source: { kind: 'sample', name: 'sample-results.json', sample: true },
+    }
+  }
+
+  const resultPath = resolve(file)
+  if (!existsSync(resultPath)) {
+    throw new Error(`Result file not found: ${resultPath}`)
+  }
+
+  const json = readFileSync(resultPath, 'utf8')
+  JSON.parse(json)
+  return {
+    json,
+    source: { kind: 'file', name: basename(resultPath), path: resultPath, sample: false },
+  }
+}
+
+function isPortConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes('EADDRINUSE') || (message.includes('port') && message.includes('use'))
+}
+
+async function serveDashboard(file: string | undefined, opts: DashboardOptions): Promise<void> {
+  const { json, source } = readDashboardPayload(file)
+  const preferredPort = parsePort(opts.port)
+  const host = opts.host ?? '127.0.0.1'
+  let server: ReturnType<typeof Bun.serve> | undefined
+  let lastPortError: unknown
+
+  const start = (port: number) => Bun.serve({
+    hostname: host,
+    port,
+    fetch(req) {
+      const url = new URL(req.url)
+
+      if (url.pathname === '/results.json') {
+        return new Response(json, {
+          headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+        })
+      }
+
+      if (url.pathname === '/source.json') {
+        return jsonResponse(source)
+      }
+
+      const assetPath = resolveAssetPath(url.pathname)
+      if (!assetPath || !existsSync(assetPath)) {
+        return new Response('Not found', { status: 404 })
+      }
+
+      return new Response(Bun.file(assetPath), {
+        headers: { 'content-type': contentTypeFor(assetPath) },
+      })
+    },
+  })
+
+  for (let offset = 0; offset < 50; offset++) {
+    const port = preferredPort + offset
+    try {
+      server = start(port)
+      break
+    } catch (e) {
+      if (!isPortConflict(e)) throw e
+      lastPortError = e
+    }
+  }
+
+  if (!server) {
+    try {
+      server = start(0)
+    } catch (e) {
+      throw lastPortError ?? e
+    }
+  }
+
+  if (!server) throw new Error('Unable to start dashboard server')
+
+  const url = `http://${host}:${server.port}`
+  console.log(`\nwrite-bench dashboard: ${url}`)
+  console.log(`Data source: ${String(source.name)}${source.sample ? ' (sample)' : ''}`)
+  console.log('Press Ctrl+C to stop.\n')
+
+  process.on('SIGINT', () => {
+    server?.stop()
+    process.exit(0)
+  })
+
+  await new Promise(() => {})
+}
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -144,6 +287,22 @@ program
       console.log(`Table written to: ${opts.output}`)
     } else {
       console.log('\n' + humanStr)
+    }
+  })
+
+// ── view ──────────────────────────────────────────────────────────────────────
+
+program
+  .command('view [file]')
+  .description('Serve a local web dashboard for a benchmark JSON output')
+  .option('-p, --port <number>', 'preferred local port (default: 4173)')
+  .option('--host <host>', 'host to bind (default: 127.0.0.1)')
+  .action(async (file: string | undefined, opts: DashboardOptions) => {
+    try {
+      await serveDashboard(file, opts)
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e))
+      process.exit(1)
     }
   })
 

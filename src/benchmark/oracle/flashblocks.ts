@@ -31,14 +31,16 @@ export interface FlashblockOracle {
   close(): void
 }
 
-// ── Flashblock message schema (provisional — Base Flashblocks API in flux) ────
+// ── Flashblock message schema ─────────────────────────────────────────────────
+//
+// With eth_subscribe("newFlashblockTransactions", true), each notification's
+// params.result is a merged tx+receipt object — logs are top-level, blockNumber
+// is camelCase hex. There is no metadata.receipts wrapper.
 
 interface FlashblockPayload {
-  index?: number
-  block_number?: string | number
-  metadata?: {
-    receipts?: Array<{ logs?: unknown[] }>
-  }
+  blockNumber?: string          // camelCase hex, e.g. "0x1234"
+  transactionIndex?: string     // camelCase hex
+  logs?: unknown[]              // top-level receipt logs
 }
 
 interface SubscriptionMessage {
@@ -59,10 +61,22 @@ interface RpcResponse {
 const RECONNECT_DELAY_MS = 500
 const SUBSCRIBE_TIMEOUT_MS = 5_000
 
+const RECENT_TTL_MS = 15_000   // flashblocks to keep in lookback window
+const MAX_RECENT   = 100       // hard cap on ring buffer size
+
+type RecentFlashblock = {
+  logs: unknown[]
+  blockNumber: bigint
+  flashblockIndex: number
+  tMs: number
+  expiry: number
+}
+
 export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory }): FlashblockOracle {
   const createWs = deps?.ws ?? ((url: string) => new WebSocket(url) as unknown as FlashblocksWs)
 
   const pending = new Map<string, PendingWatch>()
+  const recent: RecentFlashblock[] = []   // lookback ring buffer
   let socket: FlashblocksWs | null = null
   let subscriptionId: string | null = null
   let closed = false
@@ -84,7 +98,8 @@ export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory })
 
     socket.onclose = () => {
       subscriptionId = null
-      if (!closed && pending.size > 0) {
+      // Always reconnect while not explicitly closed — keeps the socket warm between runs
+      if (!closed) {
         setTimeout(connect, RECONNECT_DELAY_MS)
       }
     }
@@ -109,21 +124,23 @@ export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory })
       return
     }
 
-    // Incoming flashblock notification
+    // Incoming flashblock notification — params.result is a merged tx+receipt object
     const sub = msg as SubscriptionMessage
     if (sub.method !== 'eth_subscription' || !sub.params?.result) return
     const payload = sub.params.result
 
-    const blockNumberRaw = payload.block_number
+    const blockNumberRaw = payload.blockNumber
     if (blockNumberRaw == null) return
     const blockNumber = BigInt(blockNumberRaw)
-    const flashblockIndex = payload.index ?? 0
+    const flashblockIndex = payload.transactionIndex != null ? Number(BigInt(payload.transactionIndex)) : 0
     const tMs = performance.now()
 
-    // Collect all logs from all receipts in this flashblock
-    const allLogs: unknown[] = []
-    for (const receipt of payload.metadata?.receipts ?? []) {
-      if (Array.isArray(receipt.logs)) allLogs.push(...receipt.logs)
+    const allLogs: unknown[] = Array.isArray(payload.logs) ? payload.logs : []
+
+    // Store in lookback ring buffer so late-registered watches can find already-seen hashes
+    if (allLogs.length > 0) {
+      recent.push({ logs: allLogs, blockNumber, flashblockIndex, tMs, expiry: tMs + RECENT_TTL_MS })
+      while (recent.length > MAX_RECENT) recent.shift()
     }
 
     // Check each pending watch
@@ -156,16 +173,30 @@ export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory })
 
   // ── Public API ────────────────────────────────────────────────────────────
 
+  // Eager connect — pre-warm so the socket is ready before the first watch
+  connect()
+
   return {
     watch(userOpHash, timeoutMs) {
       return new Promise<FlashblockResult>(resolve => {
         const key = userOpHash.toLowerCase()
-        pending.set(key, {
-          resolve,
-          deadline: performance.now() + timeoutMs,
-        })
+        const now = performance.now()
 
-        // Lazy connect on first watch
+        // Check lookback buffer — handles the race where the flashblock arrived
+        // before this watch was registered (submit latency > WS roundtrip)
+        const expiredBefore = now - RECENT_TTL_MS
+        for (const fb of recent) {
+          if (fb.tMs < expiredBefore) continue
+          const match = findUserOpInRawLogs(fb.logs, userOpHash as `0x${string}`)
+          if (match) {
+            resolve({ status: 'ok', blockNumber: fb.blockNumber, flashblockIndex: fb.flashblockIndex, tMs: fb.tMs })
+            return
+          }
+        }
+
+        pending.set(key, { resolve, deadline: now + timeoutMs })
+
+        // Safety net in case the eager socket was closed/never opened
         if (!socket) connect()
 
         // Schedule expiry sweep

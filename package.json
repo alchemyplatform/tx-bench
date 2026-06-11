@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "spike": "bun run scripts/premise-spike.ts"
+    "spike": "bun run scripts/premise-spike.ts",
+    "view": "bun run src/cli/index.ts view"
   },
   "dependencies": {
     "@account-kit/infra": "^4.88.4",

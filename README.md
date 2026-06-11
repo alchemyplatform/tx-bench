@@ -67,9 +67,17 @@ bun run src/cli/index.ts run --providers alchemy-light-account
 # Run with JSON output to file
 bun run src/cli/index.ts run --json results.json
 
+# View a saved run in the local web dashboard
+bun run src/cli/index.ts view results.json
+
+# Or open the dashboard with sample data
+bun run view
+
 # Run 10 iterations
 bun run src/cli/index.ts run -n 10
 ```
+
+The dashboard is intentionally read-only: it visualizes the JSON run record emitted by the CLI, including provider rankings, stage medians/p95s, failure counts, raw run rows, and the separate intent-relay exhibit.
 
 ---
 

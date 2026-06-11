@@ -53,6 +53,8 @@ class MockWs implements FlashblocksWs {
     flashblockIndex: number,
     txHash: `0x${string}`
   ) {
+    const blockHex = `0x${blockNumber.toString(16)}`
+    // Real schema: merged tx+receipt object — logs top-level, blockNumber camelCase
     this.simulateMessage(
       JSON.stringify({
         jsonrpc: '2.0',
@@ -60,23 +62,18 @@ class MockWs implements FlashblocksWs {
         params: {
           subscription: '0xsub1',
           result: {
-            index: flashblockIndex,
-            block_number: `0x${blockNumber.toString(16)}`,
-            metadata: {
-              receipts: [
-                {
-                  logs: [
-                    {
-                      address: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-                      topics: [USER_OP_EVENT_TOPIC, userOpHash],
-                      data: '0x',
-                      blockNumber: `0x${blockNumber.toString(16)}`,
-                      transactionHash: txHash,
-                    },
-                  ],
-                },
-              ],
-            },
+            blockNumber: blockHex,
+            transactionIndex: `0x${flashblockIndex.toString(16)}`,
+            hash: txHash,
+            logs: [
+              {
+                address: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+                topics: [USER_OP_EVENT_TOPIC, userOpHash],
+                data: '0x',
+                blockNumber: blockHex,
+                transactionHash: txHash,
+              },
+            ],
           },
         },
       })
@@ -129,39 +126,17 @@ describe('flashblock oracle — happy path', () => {
       // After both are registered, send a flashblock containing both hashes
       (async () => {
         await new Promise(r => setTimeout(r, 20))
-        // Send a flashblock with two receipts
-        instances[0].simulateMessage(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            method: 'eth_subscription',
-            params: {
-              subscription: '0xsub1',
-              result: {
-                index: 1,
-                block_number: '0x2710',
-                metadata: {
-                  receipts: [
-                    {
-                      logs: [
-                        { address: '0x0000000071727De22E5E9d8BAf0edAc6f37da032', topics: [USER_OP_EVENT_TOPIC, HASH_A], data: '0x', blockNumber: '0x2710', transactionHash: TX_A },
-                        { address: '0x0000000071727De22E5E9d8BAf0edAc6f37da032', topics: [USER_OP_EVENT_TOPIC, HASH_B], data: '0x', blockNumber: '0x2710', transactionHash: ('0x' + 'dd'.repeat(32)) },
-                      ],
-                    },
-                  ],
-                },
-              },
-            },
-          })
-        )
+        // Two separate tx+receipt messages — one per userOp
+        instances[0].simulateFlashblock(HASH_A, 10000n, 1, TX_A)
+        instances[0].simulateFlashblock(HASH_B, 10000n, 2, ('0x' + 'dd'.repeat(32)) as `0x${string}`)
       })(),
     ])
 
     expect(rA.status).toBe('ok')
     expect(rB.status).toBe('ok')
     if (rA.status === 'ok' && rB.status === 'ok') {
-      // Both in same flashblock — equal block positions (not an error)
-      expect(rA.blockNumber).toBe(rB.blockNumber)
-      expect(rA.flashblockIndex).toBe(rB.flashblockIndex)
+      expect(rA.blockNumber).toBe(10000n)
+      expect(rB.blockNumber).toBe(10000n)
     }
     oracle.close()
   })
@@ -220,6 +195,28 @@ describe('flashblock oracle — socket disconnect', () => {
   })
 })
 
+describe('flashblock oracle — lookback cache', () => {
+  it('resolves immediately when watch is registered after the flashblock already arrived', async () => {
+    const { factory, instances } = makeFactory()
+    const oracle = createFlashblockOracle('wss://mock', { ws: factory })
+
+    // Wait for eager connect + subscribe
+    await new Promise(r => setTimeout(r, 20))
+
+    // Flashblock arrives BEFORE watch is registered (simulates fast bundler / slow watch setup)
+    instances[0].simulateFlashblock(HASH_A, 42n, 0, TX_A)
+    await new Promise(r => setTimeout(r, 5))
+
+    // Watch registered after the fact — should hit the lookback cache
+    const result = await oracle.watch(HASH_A, 100)
+    expect(result.status).toBe('ok')
+    if (result.status === 'ok') {
+      expect(result.blockNumber).toBe(42n)
+    }
+    oracle.close()
+  })
+})
+
 describe('flashblock oracle — schema tolerance', () => {
   it('resolves not-observed when flashblock payload has no matching userOpHash', async () => {
     const { factory, instances } = makeFactory()
@@ -243,14 +240,14 @@ describe('flashblock oracle — schema tolerance', () => {
     const resultPromise = oracle.watch(HASH_A, 100)
     await new Promise(r => setTimeout(r, 20))
 
-    // Send malformed flashblock (no metadata.receipts)
+    // Send a flashblock message missing blockNumber — should be silently ignored
     instances[0].simulateMessage(
       JSON.stringify({
         jsonrpc: '2.0',
         method: 'eth_subscription',
         params: {
           subscription: '0xsub1',
-          result: { index: 0, block_number: '0x1' },  // no metadata
+          result: { hash: TX_A },  // no blockNumber
         },
       })
     )
