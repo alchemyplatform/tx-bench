@@ -33,8 +33,11 @@ class AlchemyMAv2AccountClient implements AccountClient {
       policyId: this.policyId,
     })
 
+    // MAv2 encodeExecute short-circuits when target === accountAddress (passes
+    // data through directly), so target: self + data: '0x' produces callData: '0x'
+    // and AA23 reverts during validation. Use any non-self target instead.
     const { hash: userOpHash } = await client.sendUserOperation({
-      uo: { target: client.account.address, data: '0x', value: 0n },
+      uo: { target: '0x000000000000000000000000000000000000dEaD', data: '0x', value: 0n },
     })
 
     return {

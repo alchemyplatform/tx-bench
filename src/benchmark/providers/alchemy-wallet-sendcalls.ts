@@ -34,8 +34,10 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
       paymaster: { policyId: this.policyId },
     })
 
+    // Calling to: signer.address (the EIP-7702 smart wallet itself) with empty
+    // data invokes the wallet's fallback and fails validation. Use a non-self target.
     const { id: callId } = await client.sendCalls({
-      calls: [{ to: signer.address, data: '0x', value: 0n }],
+      calls: [{ to: '0x000000000000000000000000000000000000dEaD', data: '0x', value: 0n }],
     })
     const tAccepted = performance.now()
 
