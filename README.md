@@ -4,7 +4,7 @@ A neutral ERC-4337 write-path latency benchmark for Base mainnet.
 
 Measures each stage of the userOp lifecycle independently (submit/accept, flashblock preconfirmation, canonical inclusion) using a **provider-independent neutral oracle** so the timing of every provider is measured identically — never by polling that provider's own receipt API.
 
-Designed to produce fair, reproducible, per-stage numbers across Alchemy (Light Account), Pimlico (Safe), and ZeroDev (Kernel + UltraRelay) on Base mainnet.
+Designed to produce fair, reproducible, per-stage numbers across Alchemy (Light Account v2, Modular Account v2), Pimlico (Safe), and ZeroDev (Kernel + UltraRelay) on Base mainnet.
 
 ---
 
@@ -44,9 +44,10 @@ cp .env.example .env
 
 | Provider | Env var(s) |
 |----------|-----------|
-| Alchemy  | `ALCHEMY_API_KEY`, `ALCHEMY_POLICY_ID` |
-| Pimlico  | `PIMLICO_API_KEY`, `PIMLICO_POLICY_ID` |
-| ZeroDev  | `ZERODEV_API_KEY`, `ZERODEV_PROJECT_ID` |
+| Alchemy (Light Account v2)    | `ALCHEMY_API_KEY`, `ALCHEMY_POLICY_ID` |
+| Alchemy (Modular Account v2)  | `ALCHEMY_API_KEY`, `ALCHEMY_POLICY_ID` |
+| Pimlico (Safe)                | `PIMLICO_API_KEY`, `PIMLICO_POLICY_ID` |
+| ZeroDev (Kernel / UltraRelay) | `ZERODEV_API_KEY`, `ZERODEV_PROJECT_ID` |
 
 Plus `NEUTRAL_RPC_URL` pointing to an independent Base mainnet HTTP RPC (must **not** be Alchemy, Pimlico, or ZeroDev), and optionally `NEUTRAL_FLASHBLOCK_WS_URL` for a non-contestant flashblock endpoint.
 
@@ -91,7 +92,7 @@ CLI
  └─ runPreflight()       chain ID agreement, neutrality guard, flashblock probe
  └─ runBenchmarkGrid()   N iterations × M providers, parallel per-iteration
       └─ sendSponsored()     adapter: build fresh account, submit userOp → hash
-      │    ├─ Alchemy  reads → Alchemy RPC
+      │    ├─ Alchemy LAv2 / MAv2 reads → Alchemy RPC
       │    ├─ Pimlico  reads → Alchemy RPC (bundler URL does not support eth_call)
       │    └─ ZeroDev  reads → ZeroDev RPC (full node)
       └─ canonicalOracle.watch()   neutral getLogs poll → UserOperationEvent

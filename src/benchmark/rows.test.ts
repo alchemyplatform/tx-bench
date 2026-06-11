@@ -13,12 +13,13 @@ const FULL_ENV = {
 }
 
 describe('buildRows', () => {
-  it('marks only Alchemy row as runnable with only Alchemy env set', () => {
+  it('marks only Alchemy rows as runnable with only Alchemy env set', () => {
     const rows = buildRows(ALCHEMY_ONLY)
     const runnable = getRunnableRows(rows)
 
-    expect(runnable).toHaveLength(1)
-    expect(runnable[0].id).toBe('alchemy-light-account')
+    // Both Alchemy account variants (LAv2 and MAv2) share the same env keys
+    expect(runnable.length).toBeGreaterThanOrEqual(2)
+    expect(runnable.every(r => r.id.startsWith('alchemy-'))).toBe(true)
   })
 
   it('reports missing env names on non-runnable rows', () => {

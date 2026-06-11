@@ -18,6 +18,13 @@ const ROW_DEFINITIONS: readonly RowDefinition[] = [
     requiredEnv: ['ALCHEMY_API_KEY', 'ALCHEMY_POLICY_ID'],
   },
   {
+    id: 'alchemy-modular-account-v2',
+    label: 'Alchemy (Modular Account v2)',
+    protocolClass: '4337-bundler',
+    accountTypeLabel: 'Modular Account v2',
+    requiredEnv: ['ALCHEMY_API_KEY', 'ALCHEMY_POLICY_ID'],
+  },
+  {
     id: 'pimlico-safe',
     label: 'Pimlico (Safe)',
     protocolClass: '4337-bundler',
