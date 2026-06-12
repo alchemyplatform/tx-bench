@@ -1,5 +1,5 @@
 {
-  "name": "write-bench",
+  "name": "tx-bench",
   "version": "0.1.0",
   "private": true,
   "type": "module",

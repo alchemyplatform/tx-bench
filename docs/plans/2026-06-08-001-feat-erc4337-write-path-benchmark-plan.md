@@ -97,7 +97,7 @@ sequenceDiagram
 Greenfield layout. Per-unit `**Files:**` remain authoritative; this tree shows intended shape:
 
 ```text
-write-bench/
+tx-bench/
   package.json
   tsconfig.json
   .env.example

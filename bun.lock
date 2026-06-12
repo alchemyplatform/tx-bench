@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "write-bench",
+      "name": "tx-bench",
       "dependencies": {
         "@account-kit/infra": "^4.88.4",
         "@account-kit/smart-contracts": "^4.88.4",

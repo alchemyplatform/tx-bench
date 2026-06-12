@@ -1,13 +1,15 @@
 #!/usr/bin/env bun
 import { Command } from 'commander'
 import { loadConfig } from '../benchmark/config.js'
-import { buildRows, getRunnableRows } from '../benchmark/rows.js'
+import { assertRowsExist, buildRows, getRunnableRows } from '../benchmark/rows.js'
 import { runPreflight } from '../benchmark/preflight.js'
 import { createCanonicalOracle } from '../benchmark/oracle/canonical.js'
 import { createFlashblockOracle } from '../benchmark/oracle/flashblocks.js'
-import { runBenchmarkGrid, type ProviderEntry } from '../benchmark/service.js'
+import { runBenchmarkGrid, type ProviderEntry, type ProviderRunResult } from '../benchmark/service.js'
 import { buildOutput, serializeOutput } from '../benchmark/output.js'
 import { renderTable } from './render.js'
+import { writeRunArtifact, findLatestRunJson, resolveRunDirectoryJson, sourceNameForRunJson } from './run-artifacts.js'
+import { openBrowser } from './open-browser.js'
 import { alchemyAdapter } from '../benchmark/providers/alchemy.js'
 import { alchemyMAv2Adapter } from '../benchmark/providers/alchemy-mav2.js'
 import { alchemyMAv2BSOAdapter } from '../benchmark/providers/alchemy-mav2-bso.js'
@@ -16,8 +18,8 @@ import { pimlicoAdapter } from '../benchmark/providers/pimlico.js'
 import { zerodevKernelAdapter, zerodevUltraRelayAdapter } from '../benchmark/providers/zerodev.js'
 import { createPublicClient, http } from 'viem'
 import { base } from 'viem/chains'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
-import { basename, extname, join, resolve } from 'path'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { basename, extname, isAbsolute, join, relative, resolve } from 'path'
 import { fileURLToPath } from 'url'
 
 const ALL_ADAPTERS = [alchemyAdapter, alchemyMAv2Adapter, alchemyMAv2BSOAdapter, alchemyWalletSendCallsAdapter, pimlicoAdapter, zerodevKernelAdapter, zerodevUltraRelayAdapter]
@@ -28,13 +30,31 @@ type DashboardOptions = {
   host?: string
 }
 
-function parsePort(value: string | undefined): number {
+type DashboardSource = Record<string, string | boolean>
+
+type RunOptions = {
+  providers?: string
+  count?: string
+  json?: boolean | string
+  output?: string
+}
+
+export function parsePort(value: string | undefined): number {
   if (!value) return 4173
   const port = Number.parseInt(value, 10)
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     throw new Error(`Invalid port: ${value}`)
   }
   return port
+}
+
+export function parseRunCount(value: string): number {
+  if (!/^\d+$/.test(value)) throw new Error(`Invalid run count: ${value}`)
+  const count = Number.parseInt(value, 10)
+  if (!Number.isInteger(count) || count <= 0 || count > 100) {
+    throw new Error(`Invalid run count: ${value}. Must be an integer between 1 and 100.`)
+  }
+  return count
 }
 
 function contentTypeFor(filePath: string): string {
@@ -54,40 +74,65 @@ function jsonResponse(value: unknown): Response {
   })
 }
 
-function resolveAssetPath(pathname: string): string | undefined {
+export function resolveAssetPath(pathname: string): string | undefined {
   const assetName = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.slice(1))
   const assetPath = resolve(WEB_ROOT, assetName)
   const rootPath = resolve(WEB_ROOT)
+  const rel = relative(rootPath, assetPath)
 
-  if (assetPath !== rootPath && !assetPath.startsWith(rootPath + '/')) {
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
     return undefined
   }
 
   return assetPath
 }
 
-function readDashboardPayload(file: string | undefined): { json: string; source: Record<string, string | boolean> } {
+function validateDashboardJson(json: string, label: string): void {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  } catch (e) {
+    throw new Error(`Invalid JSON in ${label}: ${e instanceof Error ? e.message : String(e)}`)
+  }
+
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { results?: unknown }).results)) {
+    throw new Error(`Invalid tx-bench output in ${label}: expected top-level results array`)
+  }
+}
+
+export function readDashboardPayload(file: string | undefined): { json: string; source: DashboardSource } {
   if (!file) {
     const samplePath = join(WEB_ROOT, 'sample-results.json')
     const json = readFileSync(samplePath, 'utf8')
-    JSON.parse(json)
+    validateDashboardJson(json, 'sample-results.json')
     return {
       json,
       source: { kind: 'sample', name: 'sample-results.json', sample: true },
     }
   }
 
-  const resultPath = resolve(file)
-  if (!existsSync(resultPath)) {
-    throw new Error(`Result file not found: ${resultPath}`)
+  let resultPath: string
+  let source: DashboardSource
+
+  if (file === 'latest') {
+    resultPath = findLatestRunJson()
+    source = { kind: 'run', name: sourceNameForRunJson(resultPath), sample: false }
+  } else {
+    const resolved = resolve(file)
+    if (!existsSync(resolved)) throw new Error(`Result file not found: ${resolved}`)
+
+    if (statSync(resolved).isDirectory()) {
+      resultPath = resolveRunDirectoryJson(resolved)
+      source = { kind: 'run', name: basename(resolved), sample: false }
+    } else {
+      resultPath = resolved
+      source = { kind: 'file', name: basename(resultPath), sample: false }
+    }
   }
 
   const json = readFileSync(resultPath, 'utf8')
-  JSON.parse(json)
-  return {
-    json,
-    source: { kind: 'file', name: basename(resultPath), path: resultPath, sample: false },
-  }
+  validateDashboardJson(json, resultPath)
+  return { json, source }
 }
 
 function isPortConflict(error: unknown): boolean {
@@ -95,7 +140,7 @@ function isPortConflict(error: unknown): boolean {
   return message.includes('EADDRINUSE') || (message.includes('port') && message.includes('use'))
 }
 
-async function serveDashboard(file: string | undefined, opts: DashboardOptions): Promise<void> {
+async function serveDashboard(file: string | undefined, opts: DashboardOptions, serverOpts: { open?: boolean } = {}): Promise<void> {
   const { json, source } = readDashboardPayload(file)
   const preferredPort = parsePort(opts.port)
   const host = opts.host ?? '127.0.0.1'
@@ -151,8 +196,17 @@ async function serveDashboard(file: string | undefined, opts: DashboardOptions):
   if (!server) throw new Error('Unable to start dashboard server')
 
   const url = `http://${host}:${server.port}`
-  console.log(`\nwrite-bench dashboard: ${url}`)
+  console.log(`\ntx-bench dashboard: ${url}`)
   console.log(`Data source: ${String(source.name)}${source.sample ? ' (sample)' : ''}`)
+
+  if (serverOpts.open) {
+    const opened = await openBrowser(url)
+    if (!opened.ok) {
+      console.warn(`⚠️   Could not open browser automatically: ${opened.error}`)
+      console.warn(`     Open this URL manually: ${url}`)
+    }
+  }
+
   console.log('Press Ctrl+C to stop.\n')
 
   process.on('SIGINT', () => {
@@ -163,11 +217,48 @@ async function serveDashboard(file: string | undefined, opts: DashboardOptions):
   await new Promise(() => {})
 }
 
+export function selectRunnableRows(rows: ReturnType<typeof buildRows>, providers?: string): ReturnType<typeof buildRows> {
+  const runnable = getRunnableRows(rows)
+
+  if (!providers) {
+    if (runnable.length === 0) throw new Error('No providers are runnable. Check your .env file.')
+    return runnable
+  }
+
+  const requested = providers.split(',').map(s => s.trim()).filter(Boolean)
+  if (requested.length === 0) throw new Error('No provider IDs supplied.')
+
+  assertRowsExist(requested, rows)
+  const requestedSet = new Set(requested)
+  const selected = rows.filter(row => requestedSet.has(row.id))
+  const notRunnable = selected.filter(row => !row.runnable)
+
+  if (notRunnable.length > 0) {
+    throw new Error(notRunnable.map(row => `${row.id} is not runnable — missing: ${row.missingEnv.join(', ')}`).join('\n'))
+  }
+
+  if (selected.length === 0) throw new Error(`No matching runnable providers for: ${requested.join(', ')}`)
+  return selected
+}
+
+function providerEntriesFor(rows: ReturnType<typeof buildRows>): ProviderEntry[] {
+  const adapterMap = new Map(ALL_ADAPTERS.map(a => [a.id, a]))
+  return rows.map(row => {
+    const adapter = adapterMap.get(row.id)
+    if (!adapter) throw new Error(`No adapter registered for provider row: ${row.id}`)
+    return { row, adapter }
+  })
+}
+
+function allProvidersFailed(results: ProviderRunResult[]): boolean {
+  return results.length > 0 && results.every(result => result.metrics.runCount > 0 && result.metrics.failureCount >= result.metrics.runCount)
+}
+
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
 const program = new Command()
-  .name('write-bench')
-  .description('ERC-4337 write-path benchmark — neutral inclusion oracle, per-stage timing')
+  .name('tx-bench')
+  .description('Provider-neutral transaction write-path benchmarks — submission, preconfirmation, and inclusion timing')
   .version('0.1.0')
 
 // ── doctor ───────────────────────────────────────────────────────────────────
@@ -214,82 +305,90 @@ program
 
 program
   .command('run')
-  .description('Run the benchmark')
+  .description('Run the benchmark, save a run folder, and open the local browser report')
   .option('--providers <list>', 'comma-separated provider IDs to run (default: all runnable)')
   .option('-n, --count <number>', 'number of runs per provider (overrides RUN_COUNT env)', String)
-  .option('--json [file]', 'emit JSON output; omit file to write to stdout')
-  .option('--output <file>', 'write human-readable table to this file')
-  .action(async (opts: { providers?: string; count?: string; json?: boolean | string; output?: string }) => {
-    const config = loadConfig()
-    if (opts.count) config.runCount = parseInt(opts.count, 10)
+  .option('--json [file]', 'emit JSON output; omit file for JSON-only stdout without opening the report')
+  .option('--output <file>', 'write human-readable table to this file without opening the report')
+  .action(async (opts: RunOptions) => {
+    try {
+      const jsonStdout = opts.json === true
+      const explicitJsonFile = typeof opts.json === 'string'
+      const explicitExport = explicitJsonFile || !!opts.output
+      const log = jsonStdout ? console.error : console.log
 
-    const rows = buildRows(process.env)
-    let runnable = getRunnableRows(rows)
+      const config = loadConfig()
+      if (opts.count) config.runCount = parseRunCount(opts.count)
 
-    if (opts.providers) {
-      const requested = opts.providers.split(',').map(s => s.trim())
-      runnable = runnable.filter(r => requested.includes(r.id))
-      if (runnable.length === 0) {
-        console.error(`No matching runnable providers for: ${requested.join(', ')}`)
+      const rows = buildRows(process.env)
+      const runnable = selectRunnableRows(rows, opts.providers)
+
+      const preflight = await runPreflight(config, runnable)
+      if (!preflight.ok) {
+        console.error('Preflight failed:')
+        for (const err of preflight.errors) console.error(`  ${err}`)
         process.exit(1)
       }
-    }
+      for (const w of preflight.warnings) console.warn(`⚠️   ${w}`)
 
-    // Preflight
-    const preflight = await runPreflight(config, runnable)
-    if (!preflight.ok) {
-      console.error('Preflight failed:')
-      for (const err of preflight.errors) console.error(`  ${err}`)
-      process.exit(1)
-    }
-    for (const w of preflight.warnings) console.warn(`⚠️   ${w}`)
+      const providers = providerEntriesFor(runnable)
 
-    // Build provider entries
-    const adapterMap = new Map(ALL_ADAPTERS.map(a => [a.id, a]))
-    const providers: ProviderEntry[] = runnable
-      .map(row => ({ row, adapter: adapterMap.get(row.id) }))
-      .filter((e): e is ProviderEntry => !!e.adapter)
+      const neutralPublicClient = createPublicClient({ chain: base, transport: http(config.neutral.rpcUrl) })
+      const canonicalOracle = createCanonicalOracle(neutralPublicClient)
+      const flashblockOracle = config.neutral.flashblockWsUrl && preflight.flashblockAvailable
+        ? createFlashblockOracle(config.neutral.flashblockWsUrl)
+        : createFlashblockOracle('wss://no-op', { ws: (_url) => ({ readyState: 3, send: () => {}, close: () => {}, onopen: null, onclose: null, onerror: null, onmessage: null }) })
 
-    // Create oracles
-    const neutralPublicClient = createPublicClient({ chain: base, transport: http(config.neutral.rpcUrl) })
-    const canonicalOracle = createCanonicalOracle(neutralPublicClient)
-    const flashblockOracle = config.neutral.flashblockWsUrl && preflight.flashblockAvailable
-      ? createFlashblockOracle(config.neutral.flashblockWsUrl)
-      : createFlashblockOracle('wss://no-op', { ws: (_url) => ({ readyState: 3, send: () => {}, close: () => {}, onopen: null, onclose: null, onerror: null, onmessage: null }) })
+      log(`\nRunning ${config.runCount} iteration(s) across ${providers.length} provider(s)...\n`)
 
-    console.log(`\nRunning ${config.runCount} iteration(s) across ${providers.length} provider(s)...\n`)
-
-    const results = await runBenchmarkGrid(config, providers, canonicalOracle, flashblockOracle,
-      e => {
-        if (e.kind === 'provider-done') {
-          console.log(`  [${e.iteration + 1}/${config.runCount}] ${e.provider}: ${e.status}`)
-        }
+      let results: ProviderRunResult[]
+      try {
+        results = await runBenchmarkGrid(config, providers, canonicalOracle, flashblockOracle,
+          e => {
+            if (e.kind === 'provider-done') {
+              log(`  [${e.iteration + 1}/${config.runCount}] ${e.provider}: ${e.status}`)
+            }
+          }
+        )
+      } finally {
+        canonicalOracle.close()
+        flashblockOracle.close()
       }
-    )
 
-    canonicalOracle.close()
-    flashblockOracle.close()
+      const output = buildOutput({ config, results, preconfAvailable: preflight.flashblockAvailable })
+      const jsonStr = serializeOutput(output)
+      const humanStr = renderTable(output)
 
-    const output = buildOutput({ config, results, preconfAvailable: preflight.flashblockAvailable })
-    const jsonStr = serializeOutput(output)
-    const humanStr = renderTable(output)
-
-    // Emit outputs
-    if (opts.json) {
-      if (typeof opts.json === 'string') {
-        writeFileSync(opts.json, jsonStr)
-        console.log(`\nJSON written to: ${opts.json}`)
-      } else {
+      if (jsonStdout) {
         console.log(jsonStr)
         return
       }
-    }
 
-    if (opts.output) {
-      writeFileSync(opts.output, humanStr)
-      console.log(`Table written to: ${opts.output}`)
-    } else {
+      if (explicitJsonFile) {
+        writeFileSync(opts.json as string, jsonStr)
+        console.log(`\nJSON written to: ${opts.json}`)
+      }
+
+      if (opts.output) {
+        writeFileSync(opts.output, humanStr)
+        console.log(`Table written to: ${opts.output}`)
+      }
+
+      if (explicitExport) return
+
+      if (allProvidersFailed(results)) {
+        console.warn('⚠️   All provider attempts failed. Saving the run so failures are inspectable.')
+      }
+
       console.log('\n' + humanStr)
+      const artifact = writeRunArtifact({ output, json: jsonStr, table: humanStr })
+      console.log(`\nRun saved to: ${artifact.runDir}`)
+      console.log(`Canonical JSON: ${artifact.runJsonPath}`)
+      console.log('Opening report...')
+      await serveDashboard(artifact.runDir, {}, { open: true })
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e))
+      process.exit(1)
     }
   })
 
@@ -297,7 +396,7 @@ program
 
 program
   .command('view [file]')
-  .description('Serve a local web dashboard for a benchmark JSON output')
+  .description('Serve a local web dashboard for sample data, latest, a run folder, or a benchmark JSON output')
   .option('-p, --port <number>', 'preferred local port (default: 4173)')
   .option('--host <host>', 'host to bind (default: 127.0.0.1)')
   .action(async (file: string | undefined, opts: DashboardOptions) => {
@@ -309,4 +408,4 @@ program
     }
   })
 
-program.parse()
+if (import.meta.main) program.parse()

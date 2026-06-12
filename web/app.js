@@ -60,7 +60,7 @@ function setOutput(output, source) {
 
 function validateOutput(output) {
   if (!output || !Array.isArray(output.results)) {
-    throw new Error('Expected a write-bench JSON output with a results array.')
+    throw new Error('Expected a tx-bench JSON output with a results array.')
   }
 }
 
@@ -418,7 +418,7 @@ els.downloadJson.addEventListener('click', () => {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = 'write-bench-results.json'
+  anchor.download = 'tx-bench-results.json'
   anchor.click()
   URL.revokeObjectURL(url)
 })

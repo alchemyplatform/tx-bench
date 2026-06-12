@@ -1,10 +1,10 @@
-# write-bench
+# tx-bench
 
-A neutral ERC-4337 write-path latency benchmark for Base mainnet.
+Provider-neutral benchmarks for measuring blockchain transaction submission, preconfirmation, and inclusion latency.
 
-Measures each stage of the userOp lifecycle independently (submit/accept, flashblock preconfirmation, canonical inclusion) using a **provider-independent neutral oracle** so the timing of every provider is measured identically — never by polling that provider's own receipt API.
+The current v1 benchmark measures each stage of the Base mainnet userOp lifecycle independently (submit/accept, flashblock preconfirmation, canonical inclusion) using a **provider-independent neutral oracle** so the timing of every provider is measured identically — never by polling that provider's own receipt API.
 
-Designed to produce fair, reproducible, per-stage numbers across Alchemy (Light Account v2, Modular Account v2), Pimlico (Safe), and ZeroDev (Kernel + UltraRelay) on Base mainnet.
+Designed to produce fair, reproducible, per-stage numbers across Alchemy (Light Account v2, Modular Account v2, EIP-7702 wallet_sendCalls), Pimlico (Safe), and ZeroDev (Kernel + UltraRelay), while leaving room for additional networks and write-path types.
 
 ---
 
@@ -33,8 +33,8 @@ Before publishing a run record, review the environment block and note:
 **Prerequisites:** [Bun](https://bun.sh) ≥ 1.3
 
 ```bash
-git clone https://github.com/alchemyplatform/write-bench
-cd write-bench
+git clone https://github.com/alchemyplatform/tx-bench
+cd tx-bench
 bun install
 cp .env.example .env
 # fill in .env
@@ -64,15 +64,19 @@ Plus `NEUTRAL_RPC_URL` pointing to an independent Base mainnet HTTP RPC (must **
 bun run src/cli/index.ts doctor
 
 # Run the benchmark (all configured providers, N=5 iterations)
+# Saves ./runs/run-YYYY-MM-DD-HHMMSS/ and opens the local report.
 bun run src/cli/index.ts run
 
-# Run Alchemy only
+# Run Alchemy only; still saves a run folder and opens the report
 bun run src/cli/index.ts run --providers alchemy-light-account
 
-# Run with JSON output to file
-bun run src/cli/index.ts run --json results.json
+# Reopen the latest saved run in the local web dashboard
+bun run src/cli/index.ts view latest
 
-# View a saved run in the local web dashboard
+# Reopen a specific run folder
+bun run src/cli/index.ts view runs/run-2026-06-11-143022
+
+# View a legacy standalone JSON output
 bun run src/cli/index.ts view results.json
 
 # Or open the dashboard with sample data
@@ -80,9 +84,14 @@ bun run view
 
 # Run 10 iterations
 bun run src/cli/index.ts run -n 10
+
+# Machine/export modes remain non-interactive and do not open the report
+bun run src/cli/index.ts run --json > results.json
+bun run src/cli/index.ts run --json results.json
+bun run src/cli/index.ts run --output table.txt
 ```
 
-The dashboard is intentionally read-only: it visualizes the JSON run record emitted by the CLI, including provider rankings, stage medians/p95s, failure counts, raw run rows, and the separate intent-relay exhibit.
+Default `run` is interactive: after the benchmark completes it opens the browser report and keeps serving it until you press Ctrl+C. The dashboard is intentionally local and read-only: it visualizes the canonical `run.json` emitted by the CLI, including provider rankings, stage medians/p95s, failure counts, raw run rows, and the separate intent-relay exhibit.
 
 ---
 
@@ -111,7 +120,16 @@ CLI
 
 ## Run record
 
-Every run produces a self-describing JSON record at `results.json` (or stdout with `--json`). It contains:
+Every default run produces a self-describing run folder under `runs/`:
+
+```text
+runs/run-YYYY-MM-DD-HHMMSS/
+  run.json       # canonical benchmark output
+  table.txt      # same human-readable table printed by the CLI
+  manifest.json  # run id, generated timestamp, tool version, git commit, artifact filenames
+```
+
+The canonical `run.json` contains:
 
 - Tool version + git commit
 - Config used (API keys and private keys **redacted**)
@@ -130,10 +148,10 @@ Anyone with their own API keys can re-run the benchmark:
 
 ```bash
 # Clone, configure .env with your own keys, then:
-bun run src/cli/index.ts run --json my-results.json
+bun run src/cli/index.ts run
 ```
 
-Compare `my-results.json` against a published run record. The stage structure, account types, and finish-line definition are identical; absolute times will differ by runner geography and RPC region (captured in the environment block).
+Compare the generated `runs/run-.../run.json` against a published run record, or reopen it with `bun run src/cli/index.ts view runs/run-...`. The stage structure, account types, and finish-line definition are identical; absolute times will differ by runner geography and RPC region (captured in the environment block).
 
 ---
 

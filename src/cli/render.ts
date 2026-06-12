@@ -31,7 +31,7 @@ export function renderTable(output: RunOutput): string {
   const lines: string[] = []
   const { results, preconfAvailable, env } = output
 
-  lines.push(`write-bench ${env.toolVersion} · ${new Date(env.generatedAt).toUTCString()}`)
+  lines.push(`tx-bench ${env.toolVersion} · ${new Date(env.generatedAt).toUTCString()}`)
   if (!preconfAvailable) {
     lines.push('⚠  Canonical-only mode — NEUTRAL_FLASHBLOCK_WS_URL not configured or unreachable.')
     lines.push('   Preconfirmation timing is unavailable. This is a weaker rebuttal of a preconf-timed claim.')
