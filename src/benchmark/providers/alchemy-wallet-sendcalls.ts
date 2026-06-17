@@ -27,8 +27,6 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     const key = this.genKey()
     const signer = privateKeyToAccount(key)
 
-    // createSmartWalletClient is synchronous; 7702 delegation + gas estimation
-    // happen server-side inside sendCalls, so prepareMs reflects only client init.
     const client = this.createClient({
       signer,
       transport: alchemyWalletTransport({ apiKey: this.apiKey }),
@@ -36,13 +34,20 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
       paymaster: { policyId: this.policyId },
     })
 
-    const tPrepared = performance.now()
-
-    // Calling to: signer.address (the EIP-7702 smart wallet itself) with empty
-    // data invokes the wallet's fallback and fails validation. Use a non-self target.
-    const { id: callId } = await client.sendCalls({
+    // prepareCalls: server-side UO construction, 7702 delegation setup, gas estimation,
+    // and paymaster sponsorship. Returns the built UO + a signature request.
+    const prepared = await client.prepareCalls({
       calls: [{ to: '0x000000000000000000000000000000000000dEaD', data: '0x', value: 0n }],
     })
+
+    const tPrepared = performance.now()
+
+    // signPreparedCalls: client-side signing of the UO hash
+    const signed = await client.signPreparedCalls(prepared)
+
+    // sendPreparedCalls: submit signed UO to bundler → call ID
+    const { id: callId } = await client.sendPreparedCalls(signed)
+
     const tAccepted = performance.now()
 
     // waitForCallsStatus polls until the tx is mined — canonical timing resolves here
@@ -65,7 +70,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
       inlineCanonical = {
         status: 'integrity-fail',
         blockNumber: receipt?.blockNumber ?? 0n,
-        reason: 'wallet_sendCalls bundle failed',
+        reason: 'wallet_sendPreparedCalls bundle failed',
       }
     } else {
       inlineCanonical = { status: 'timed-out' }

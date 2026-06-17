@@ -104,8 +104,8 @@ export function renderTable(output: RunOutput): string {
   if (walletResults.length > 0) {
     lines.push('')
     lines.push('── Wallet SendCalls Exhibit (EIP-7702 + EIP-5792, different protocol class) ' + hr(0))
-    lines.push('   wallet_sendCalls with EIP-7702 delegation; 7702 setup and gas estimation are server-side.')
-    lines.push('   Prepare ≈ 0ms (client is instantiated sync); Send = sendCalls to call ID; Canonical = call ID to mined.')
+    lines.push('   Prepare = wallet_prepareCalls (server-side UO build, 7702 delegation, gas estimation, paymaster).')
+    lines.push('   Send    = signPreparedCalls (local sign) + wallet_sendPreparedCalls (submit) → call ID.')
     lines.push('')
     lines.push(
       col('Provider', 28) +
