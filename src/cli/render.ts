@@ -67,8 +67,8 @@ export function renderTable(output: RunOutput): string {
 
   lines.push('')
   lines.push('  Columns: median / p95 across successful runs.')
-  lines.push('  Prepare = key gen + account setup + gas estimation (client-side work before the send call).')
-  lines.push('  Send    = bundler submission call to userOpHash received.')
+  lines.push('  Prepare = key gen + counterfactual address derivation + deployment check (account init RPC calls).')
+  lines.push('  Send    = full UO pipeline: nonce fetch, gas estimation, paymaster call, signing, bundler submit.')
   if (preconfAvailable) {
     lines.push('  Flashblock timing depends on runner–node peering; cross-provider equality is the robust claim.')
   }
