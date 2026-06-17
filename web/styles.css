@@ -396,6 +396,10 @@ main {
   animation: grow 520ms ease both;
 }
 
+.bar-fill.prepare {
+  background: var(--charcoal);
+}
+
 .bar-fill.submit {
   background: var(--blue);
 }

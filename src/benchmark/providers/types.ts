@@ -5,6 +5,9 @@ import type { CanonicalResult } from '../oracle/canonical.js'
 export type SponsoredResult = {
   userOpHash: `0x${string}`
   protocolClass: ProtocolClass
+  // prepareMs: key generation + account setup + gas estimation (client-side work before the send call)
+  prepareMs?: number
+  // submitMs: the actual bundler/relay submission call (from send to hash received)
   submitMs: number
   accountAddress: `0x${string}`
   // Set by wallet-sendcalls adapters which resolve canonical timing internally.

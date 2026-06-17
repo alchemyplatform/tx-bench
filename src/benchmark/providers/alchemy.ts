@@ -33,6 +33,8 @@ class AlchemyAccountClient implements AccountClient {
       policyId: this.policyId,
     })
 
+    const tPrepared = performance.now()
+
     const { hash: userOpHash } = await client.sendUserOperation({
       uo: { target: client.account.address, data: '0x', value: 0n },
     })
@@ -40,7 +42,8 @@ class AlchemyAccountClient implements AccountClient {
     return {
       userOpHash,
       protocolClass: '4337-bundler',
-      submitMs: performance.now() - tStart,
+      prepareMs: tPrepared - tStart,
+      submitMs: performance.now() - tPrepared,
       accountAddress: client.account.address,
     }
   }

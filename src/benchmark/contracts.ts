@@ -34,6 +34,7 @@ export type RunRecord = {
   accountAddress: `0x${string}`
   userOpHash: `0x${string}`
   stages: {
+    prepare: Stage
     submit: Stage
     preconf: Stage
     canonical: Stage
@@ -70,6 +71,7 @@ export type ProviderMetrics = {
   runCount: number
   failureCount: number
   stages: {
+    prepare?: StageMetrics
     submit?: StageMetrics
     preconf?: StageMetrics
     canonical?: StageMetrics

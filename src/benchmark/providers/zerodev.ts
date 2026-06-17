@@ -68,6 +68,8 @@ class ZeroDevAccountClient implements AccountClient {
       paymaster: paymasterClient,
     })
 
+    const tPrepared = performance.now()
+
     const userOpHash = await kernelClient.sendUserOperation({
       calls: [{ to: owner.address, value: 0n, data: '0x' }],
     })
@@ -75,7 +77,8 @@ class ZeroDevAccountClient implements AccountClient {
     return {
       userOpHash,
       protocolClass: this.protocolClass,
-      submitMs: performance.now() - tStart,
+      prepareMs: tPrepared - tStart,
+      submitMs: performance.now() - tPrepared,
       accountAddress: kernelAccount.address,
     }
   }

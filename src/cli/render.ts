@@ -43,20 +43,22 @@ export function renderTable(output: RunOutput): string {
   const walletResults = results.filter(r => r.row.protocolClass === 'wallet-sendcalls')
 
   // ── 4337 Bundlers headline table ────────────────────────────────────────────
-  lines.push('── 4337 Bundlers (same-class comparison) ' + hr(31))
+  lines.push('── 4337 Bundlers (same-class comparison) ' + hr(47))
   lines.push(
     col('Provider', 28) +
-    col('Submit  (med/p95)', 22) +
+    col('Prepare (med/p95)', 22) +
+    col('Send    (med/p95)', 22) +
     col('Flashblock (med/p95)', 24) +
     col('Canonical (med/p95)', 22)
   )
-  lines.push(hr(96))
+  lines.push(hr(118))
 
   for (const { row, metrics } of bundlerResults) {
     const preconfCol = preconfAvailable ? fmtStage(metrics.stages.preconf) : 'unavailable'
     const failNote = metrics.failureCount > 0 ? ` [${metrics.failureCount}/${metrics.runCount} failed]` : ''
     lines.push(
       col(row.label + failNote, 28) +
+      col(fmtStage(metrics.stages.prepare), 22) +
       col(fmtStage(metrics.stages.submit), 22) +
       col(preconfCol, 24) +
       col(fmtStage(metrics.stages.canonical), 22)
@@ -65,6 +67,8 @@ export function renderTable(output: RunOutput): string {
 
   lines.push('')
   lines.push('  Columns: median / p95 across successful runs.')
+  lines.push('  Prepare = key gen + account setup + gas estimation (client-side work before the send call).')
+  lines.push('  Send    = bundler submission call to userOpHash received.')
   if (preconfAvailable) {
     lines.push('  Flashblock timing depends on runner–node peering; cross-provider equality is the robust claim.')
   }
@@ -79,15 +83,17 @@ export function renderTable(output: RunOutput): string {
     lines.push('')
     lines.push(
       col('Provider', 28) +
-      col('Submit  (med/p95)', 22) +
+      col('Prepare (med/p95)', 22) +
+      col('Send    (med/p95)', 22) +
       col('Canonical (med/p95)', 22)
     )
-    lines.push(hr(72))
+    lines.push(hr(94))
 
     for (const { row, metrics } of relayResults) {
       const failNote = metrics.failureCount > 0 ? ` [${metrics.failureCount}/${metrics.runCount} failed]` : ''
       lines.push(
         col(row.label + failNote, 28) +
+        col(fmtStage(metrics.stages.prepare), 22) +
         col(fmtStage(metrics.stages.submit), 22) +
         col(fmtStage(metrics.stages.canonical), 22)
       )
@@ -97,21 +103,23 @@ export function renderTable(output: RunOutput): string {
   // ── Wallet SendCalls exhibit ─────────────────────────────────────────────────
   if (walletResults.length > 0) {
     lines.push('')
-    lines.push('── Wallet SendCalls Exhibit (EIP-7702, different protocol class — not comparable to above) ' + hr(0))
-    lines.push('   Uses wallet_sendCalls (EIP-5792) with EIP-7702 delegation, not ERC-4337.')
-    lines.push('   Submit = time to call ID; Canonical = time from call ID to tx mined.')
+    lines.push('── Wallet SendCalls Exhibit (EIP-7702 + EIP-5792, different protocol class) ' + hr(0))
+    lines.push('   wallet_sendCalls with EIP-7702 delegation; 7702 setup and gas estimation are server-side.')
+    lines.push('   Prepare ≈ 0ms (client is instantiated sync); Send = sendCalls to call ID; Canonical = call ID to mined.')
     lines.push('')
     lines.push(
       col('Provider', 28) +
-      col('Submit  (med/p95)', 22) +
+      col('Prepare (med/p95)', 22) +
+      col('Send    (med/p95)', 22) +
       col('Canonical (med/p95)', 22)
     )
-    lines.push(hr(72))
+    lines.push(hr(94))
 
     for (const { row, metrics } of walletResults) {
       const failNote = metrics.failureCount > 0 ? ` [${metrics.failureCount}/${metrics.runCount} failed]` : ''
       lines.push(
         col(row.label + failNote, 28) +
+        col(fmtStage(metrics.stages.prepare), 22) +
         col(fmtStage(metrics.stages.submit), 22) +
         col(fmtStage(metrics.stages.canonical), 22)
       )

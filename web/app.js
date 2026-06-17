@@ -1,6 +1,7 @@
-const stages = ['submit', 'preconf', 'canonical']
+const stages = ['prepare', 'submit', 'preconf', 'canonical']
 const stageLabels = {
-  submit: 'Submit',
+  prepare: 'Prepare',
+  submit: 'Send',
   preconf: 'Flashblock',
   canonical: 'Canonical',
   providerReceipt: 'Receipt',
@@ -230,7 +231,8 @@ function renderDetail(results) {
 
   els.detail.innerHTML = `
     <div class="detail-grid">
-      ${detailStat('Submit med/p95', formatMetric(metrics.stages.submit))}
+      ${detailStat('Prepare med/p95', formatMetric(metrics.stages.prepare))}
+      ${detailStat('Send med/p95', formatMetric(metrics.stages.submit))}
       ${detailStat('Preconf med/p95', state.output.preconfAvailable ? formatMetric(metrics.stages.preconf) : 'Unavailable')}
       ${detailStat('Canonical med/p95', formatMetric(metrics.stages.canonical))}
       ${detailStat('Failures', `${metrics.failureCount}/${metrics.runCount}`)}
@@ -240,7 +242,8 @@ function renderDetail(results) {
         <thead>
           <tr>
             <th>Run</th>
-            <th>Submit</th>
+            <th>Prepare</th>
+            <th>Send</th>
             <th>Flashblock</th>
             <th>Canonical</th>
             <th>Block</th>
@@ -263,6 +266,7 @@ function recordRow(record) {
   return `
     <tr>
       <td>${record.runIndex + 1}</td>
+      <td>${stageCell(record.stages.prepare)}</td>
       <td>${stageCell(record.stages.submit)}</td>
       <td>${stageCell(record.stages.preconf)}</td>
       <td>${stageCell(record.stages.canonical)}</td>

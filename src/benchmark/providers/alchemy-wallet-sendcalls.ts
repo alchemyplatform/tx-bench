@@ -27,12 +27,16 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     const key = this.genKey()
     const signer = privateKeyToAccount(key)
 
+    // createSmartWalletClient is synchronous; 7702 delegation + gas estimation
+    // happen server-side inside sendCalls, so prepareMs reflects only client init.
     const client = this.createClient({
       signer,
       transport: alchemyWalletTransport({ apiKey: this.apiKey }),
       chain: base,
       paymaster: { policyId: this.policyId },
     })
+
+    const tPrepared = performance.now()
 
     // Calling to: signer.address (the EIP-7702 smart wallet itself) with empty
     // data invokes the wallet's fallback and fails validation. Use a non-self target.
@@ -70,7 +74,8 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     return {
       userOpHash: callId as `0x${string}`,
       protocolClass: 'wallet-sendcalls',
-      submitMs: tAccepted - tStart,
+      prepareMs: tPrepared - tStart,
+      submitMs: tAccepted - tPrepared,
       acceptedAtMs: tAccepted,
       accountAddress: signer.address,
       inlineCanonical,
