@@ -76,6 +76,7 @@ export type StageRow = {
   accountTypeLabel: string
   runCount: number
   failureCount: number
+  prepare?: { median: number; p95: number; count: number }
   submit?: { median: number; p95: number; count: number }
   preconf?: { median: number; p95: number; count: number }
   canonical?: { median: number; p95: number; count: number }

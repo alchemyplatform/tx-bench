@@ -62,6 +62,8 @@ class PimlicoAccountClient implements AccountClient {
       },
     })
 
+    const tPrepared = performance.now()
+
     const userOpHash = await bundlerClient.sendUserOperation({
       calls: [{ to: owner.address, value: 0n, data: '0x' }],
     })
@@ -69,7 +71,7 @@ class PimlicoAccountClient implements AccountClient {
     return {
       userOpHash,
       protocolClass: '4337-bundler',
-      submitMs: performance.now() - tStart,
+      submitMs: performance.now() - tPrepared,
       accountAddress: safeAccount.address,
     }
   }

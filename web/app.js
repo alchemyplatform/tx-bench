@@ -1,6 +1,7 @@
-const stages = ['submit', 'preconf', 'canonical']
+const stages = ['prepare', 'submit', 'preconf', 'canonical']
 const stageLabels = {
-  submit: 'Submit',
+  prepare: 'Prepare',
+  submit: 'Send',
   preconf: 'Flashblock',
   canonical: 'Canonical',
   providerReceipt: 'Receipt',
@@ -135,7 +136,7 @@ function renderChart(results) {
   const max = Math.max(1, ...ranked.flatMap(result => stages.map(stage => metricFor(result, stage)?.median ?? 0)))
 
   els.chartSubtitle.textContent = ranked.length
-    ? `${ranked.length} provider${ranked.length === 1 ? '' : 's'} sorted by canonical median`
+    ? `${ranked.length} provider${ranked.length === 1 ? '' : 's'} sorted by send median`
     : 'No providers in this view'
 
   if (ranked.length === 0) {
@@ -144,7 +145,7 @@ function renderChart(results) {
   }
 
   els.chart.innerHTML = ranked.map(result => {
-    const bars = stages.map(stage => stageBar(result, stage, max)).join('')
+    const bars = stages.filter(stage => stage !== 'prepare' || metricFor(result, stage)).map(stage => stageBar(result, stage, max)).join('')
     const failureText = result.metrics.failureCount
       ? `${result.metrics.failureCount}/${result.metrics.runCount} failed`
       : `${result.metrics.runCount}/${result.metrics.runCount} ok`
@@ -230,7 +231,8 @@ function renderDetail(results) {
 
   els.detail.innerHTML = `
     <div class="detail-grid">
-      ${detailStat('Submit med/p95', formatMetric(metrics.stages.submit))}
+      ${metrics.stages.prepare ? detailStat('Prepare med/p95', formatMetric(metrics.stages.prepare)) : ''}
+      ${detailStat('Send med/p95', formatMetric(metrics.stages.submit))}
       ${detailStat('Preconf med/p95', state.output.preconfAvailable ? formatMetric(metrics.stages.preconf) : 'Unavailable')}
       ${detailStat('Canonical med/p95', formatMetric(metrics.stages.canonical))}
       ${detailStat('Failures', `${metrics.failureCount}/${metrics.runCount}`)}
@@ -240,7 +242,8 @@ function renderDetail(results) {
         <thead>
           <tr>
             <th>Run</th>
-            <th>Submit</th>
+            ${metrics.stages.prepare ? '<th>Prepare</th>' : ''}
+            <th>Send</th>
             <th>Flashblock</th>
             <th>Canonical</th>
             <th>Block</th>
@@ -249,20 +252,21 @@ function renderDetail(results) {
           </tr>
         </thead>
         <tbody>
-          ${records.map(recordRow).join('')}
+          ${records.map(record => recordRow(record, metrics)).join('')}
         </tbody>
       </table>
     </div>
   `
 }
 
-function recordRow(record) {
+function recordRow(record, metrics) {
   const canonicalBlock = record.blockPositions?.canonical?.blockNumber ?? 'n/a'
   const txHash = record.blockPositions?.canonical?.txHash ?? record.error ?? 'n/a'
 
   return `
     <tr>
       <td>${record.runIndex + 1}</td>
+      ${metrics.stages.prepare ? `<td>${stageCell(record.stages.prepare)}</td>` : ''}
       <td>${stageCell(record.stages.submit)}</td>
       <td>${stageCell(record.stages.preconf)}</td>
       <td>${stageCell(record.stages.canonical)}</td>
@@ -318,9 +322,9 @@ function emptyState(title, body) {
 
 function rankResults(results) {
   return [...results].sort((a, b) => {
-    const aCanonical = metricFor(a, 'canonical')?.median ?? Number.POSITIVE_INFINITY
-    const bCanonical = metricFor(b, 'canonical')?.median ?? Number.POSITIVE_INFINITY
-    return aCanonical - bCanonical
+    const aSubmit = metricFor(a, 'submit')?.median ?? Number.POSITIVE_INFINITY
+    const bSubmit = metricFor(b, 'submit')?.median ?? Number.POSITIVE_INFINITY
+    return aSubmit - bSubmit
   })
 }
 

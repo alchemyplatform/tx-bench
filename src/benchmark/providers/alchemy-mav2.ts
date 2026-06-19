@@ -33,6 +33,8 @@ class AlchemyMAv2AccountClient implements AccountClient {
       policyId: this.policyId,
     })
 
+    const tPrepared = performance.now()
+
     // MAv2 encodeExecute short-circuits when target === accountAddress (passes
     // data through directly), so target: self + data: '0x' produces callData: '0x'
     // and AA23 reverts during validation. Use any non-self target instead.
@@ -43,7 +45,7 @@ class AlchemyMAv2AccountClient implements AccountClient {
     return {
       userOpHash,
       protocolClass: '4337-bundler',
-      submitMs: performance.now() - tStart,
+      submitMs: performance.now() - tPrepared,
       accountAddress: client.account.address,
     }
   }

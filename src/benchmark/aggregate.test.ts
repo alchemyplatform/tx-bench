@@ -43,6 +43,7 @@ function makeRecord(submitMs: number, canonicalMs: number, error?: string): RunR
     accountAddress: '0x0000000000000000000000000000000000000001',
     userOpHash: ('0x' + 'aa'.repeat(32)) as `0x${string}`,
     stages: {
+      prepare: error ? { status: 'not-observed' } : { status: 'ok', ms: 50 },
       submit: error ? { status: 'failed', reason: error } : { status: 'ok', ms: submitMs },
       preconf: { status: 'not-observed' },
       canonical: error ? { status: 'not-observed' } : { status: 'ok', ms: canonicalMs },

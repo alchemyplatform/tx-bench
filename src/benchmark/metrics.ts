@@ -96,6 +96,7 @@ export function buildRunRecord(input: RunInput): RunRecord {
       accountAddress: '0x0000000000000000000000000000000000000000',
       userOpHash: '0x',
       stages: {
+        prepare: makeStage('not-observed'),
         submit: makeStage('failed', undefined, input.error),
         preconf: makeStage('not-observed'),
         canonical: makeStage('not-observed'),
@@ -107,7 +108,7 @@ export function buildRunRecord(input: RunInput): RunRecord {
   }
 
   const { provider, accountTypeLabel, sponsored, acceptedAtMs, canonical, preconf, providerReceiptMs, gas, runIndex } = input
-  const submitMs = sponsored.submitMs
+  const { prepareMs, submitMs } = sponsored
 
   const preconfStage = stageFromFlashblock(preconf, acceptedAtMs)
   const canonicalStage = stageFromCanonical(canonical, acceptedAtMs)
@@ -145,6 +146,7 @@ export function buildRunRecord(input: RunInput): RunRecord {
     accountAddress: sponsored.accountAddress,
     userOpHash: sponsored.userOpHash,
     stages: {
+      prepare: prepareMs != null ? makeStage('ok', prepareMs) : makeStage('not-observed'),
       submit: makeStage('ok', submitMs),
       preconf: preconfStage,
       canonical: canonicalStage,

@@ -48,6 +48,8 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
       userOperation: { estimateFeesPerGas },
     })
 
+    const tPrepared = performance.now()
+
     // Zero gas fields: BSO bundler fills them server-side.
     // Use a non-self target — MAv2 encodeCalls short-circuits when to === accountAddress
     // (passes data through directly), producing callData: '0x' and AA23 reverts.
@@ -61,7 +63,7 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
     return {
       userOpHash,
       protocolClass: '4337-bundler',
-      submitMs: performance.now() - tStart,
+      submitMs: performance.now() - tPrepared,
       accountAddress: account.address,
     }
   }

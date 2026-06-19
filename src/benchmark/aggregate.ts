@@ -46,6 +46,7 @@ export function aggregateRuns(
     runCount: records.length,
     failureCount: records.length - successRecords.length,
     stages: {
+      prepare: computeStageMetrics(collectMs('prepare')),
       submit: computeStageMetrics(collectMs('submit')),
       preconf: computeStageMetrics(collectMs('preconf')),
       canonical: computeStageMetrics(collectMs('canonical')),
