@@ -45,7 +45,6 @@ class AlchemyMAv2AccountClient implements AccountClient {
     return {
       userOpHash,
       protocolClass: '4337-bundler',
-      prepareMs: tPrepared - tStart,
       submitMs: performance.now() - tPrepared,
       accountAddress: client.account.address,
     }

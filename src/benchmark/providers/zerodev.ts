@@ -77,7 +77,6 @@ class ZeroDevAccountClient implements AccountClient {
     return {
       userOpHash,
       protocolClass: this.protocolClass,
-      prepareMs: tPrepared - tStart,
       submitMs: performance.now() - tPrepared,
       accountAddress: kernelAccount.address,
     }

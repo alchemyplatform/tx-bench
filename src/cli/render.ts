@@ -46,19 +46,17 @@ export function renderTable(output: RunOutput): string {
   lines.push('── 4337 Bundlers (same-class comparison) ' + hr(47))
   lines.push(
     col('Provider', 28) +
-    col('Prepare (med/p95)', 22) +
     col('Send    (med/p95)', 22) +
     col('Flashblock (med/p95)', 24) +
     col('Canonical (med/p95)', 22)
   )
-  lines.push(hr(118))
+  lines.push(hr(96))
 
   for (const { row, metrics } of bundlerResults) {
     const preconfCol = preconfAvailable ? fmtStage(metrics.stages.preconf) : 'unavailable'
     const failNote = metrics.failureCount > 0 ? ` [${metrics.failureCount}/${metrics.runCount} failed]` : ''
     lines.push(
       col(row.label + failNote, 28) +
-      col(fmtStage(metrics.stages.prepare), 22) +
       col(fmtStage(metrics.stages.submit), 22) +
       col(preconfCol, 24) +
       col(fmtStage(metrics.stages.canonical), 22)
@@ -67,8 +65,7 @@ export function renderTable(output: RunOutput): string {
 
   lines.push('')
   lines.push('  Columns: median / p95 across successful runs.')
-  lines.push('  Prepare = key gen + counterfactual address derivation + deployment check (account init RPC calls).')
-  lines.push('  Send    = full UO pipeline: nonce fetch, gas estimation, paymaster call, signing, bundler submit.')
+  lines.push('  Send = full UO pipeline: nonce fetch, gas estimation, paymaster call, signing, bundler submit.')
   if (preconfAvailable) {
     lines.push('  Flashblock timing depends on runner–node peering; cross-provider equality is the robust claim.')
   }
@@ -83,17 +80,15 @@ export function renderTable(output: RunOutput): string {
     lines.push('')
     lines.push(
       col('Provider', 28) +
-      col('Prepare (med/p95)', 22) +
       col('Send    (med/p95)', 22) +
       col('Canonical (med/p95)', 22)
     )
-    lines.push(hr(94))
+    lines.push(hr(72))
 
     for (const { row, metrics } of relayResults) {
       const failNote = metrics.failureCount > 0 ? ` [${metrics.failureCount}/${metrics.runCount} failed]` : ''
       lines.push(
         col(row.label + failNote, 28) +
-        col(fmtStage(metrics.stages.prepare), 22) +
         col(fmtStage(metrics.stages.submit), 22) +
         col(fmtStage(metrics.stages.canonical), 22)
       )
@@ -104,7 +99,7 @@ export function renderTable(output: RunOutput): string {
   if (walletResults.length > 0) {
     lines.push('')
     lines.push('── Wallet SendCalls Exhibit (EIP-7702 + EIP-5792, different protocol class) ' + hr(0))
-    lines.push('   Prepare = wallet_prepareCalls (server-side UO build, 7702 delegation, gas estimation, paymaster).')
+    lines.push('   Prepare = wallet_prepareCalls (server-side UO build, gas estimation, paymaster; full after first-run 7702 delegation).')
     lines.push('   Send    = signPreparedCalls (local sign) + wallet_sendPreparedCalls (submit) → call ID.')
     lines.push('')
     lines.push(

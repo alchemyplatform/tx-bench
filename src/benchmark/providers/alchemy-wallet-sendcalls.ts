@@ -13,19 +13,24 @@ type KeyGen = typeof generatePrivateKey
 // ── AccountClient impl ────────────────────────────────────────────────────────
 
 class AlchemyWalletSendCallsAccountClient implements AccountClient {
+  private readonly signer: ReturnType<typeof privateKeyToAccount>
+
   constructor(
     private readonly apiKey: string,
     private readonly policyId: string,
     private readonly canonicalTimeoutMs: number,
     private readonly createClient: ClientFactory,
-    private readonly genKey: KeyGen
-  ) {}
+    genKey: KeyGen
+  ) {
+    // Stable signer across all runs: after run 1 delegates the EOA on-chain,
+    // subsequent prepareCalls return user-operation-v070 with full UO construction,
+    // so prepareMs captures actual gas estimation + paymaster latency.
+    this.signer = privateKeyToAccount(genKey())
+  }
 
   async sendSponsored(): Promise<SponsoredResult> {
     const tStart = performance.now()
-
-    const key = this.genKey()
-    const signer = privateKeyToAccount(key)
+    const signer = this.signer
 
     const client = this.createClient({
       signer,
