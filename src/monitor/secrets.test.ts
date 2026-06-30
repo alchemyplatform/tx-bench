@@ -28,7 +28,7 @@ describe('loadMonitoringCredentials', () => {
     const creds = await loadMonitoringCredentials('us-east-1', client)
     expect(creds.ALCHEMY_API_KEY).toBe('test-api-key')
     expect(creds.ALCHEMY_POLICY_ID).toBe('test-policy-id')
-    expect(creds.OWNER_PRIVATE_KEY).toBe('0x' + 'ab'.repeat(32))
+    expect(creds.OWNER_PRIVATE_KEY).toBe(('0x' + 'ab'.repeat(32)) as `0x${string}`)
     expect(creds.NEUTRAL_RPC_URL).toBe('https://base-mainnet.example.com')
   })
 
