@@ -54,6 +54,11 @@ describe('loadConfig', () => {
     expect(cfg.providers.alchemy?.rpcUrl).toBe('https://custom.alchemy.example.com')
   })
 
+  it('derives the default Alchemy RPC URL from NETWORK, not a hardcoded network', () => {
+    const cfg = loadConfig({ ...FULL_ENV, NETWORK: 'eth-mainnet' })
+    expect(cfg.providers.alchemy?.rpcUrl).toBe('https://eth-mainnet.g.alchemy.com/v2/alchemy-key')
+  })
+
   it('applies defaults for optional settings', () => {
     const cfg = loadConfig({})
     expect(cfg.runCount).toBe(5)

@@ -17,6 +17,16 @@ const ALCHEMY_ADAPTERS = [alchemyMAv2BSOAdapter, alchemyWalletSendCallsAdapter]
 const NO_OP_WS = (_url: string) => ({ readyState: 3, send: () => {}, close: () => {}, onopen: null, onclose: null, onerror: null, onmessage: null })
 const MONITORING_RUN_COUNT_DEFAULT = 20
 
+// Known networks: viem chain + a neutral (non-Alchemy) public RPC default, so a
+// single task can monitor a configurable set of networks without per-network
+// secret configuration. Unknown networks fall back to mainnet/undefined below.
+const KNOWN_NETWORKS: Record<string, { chain: Chain; defaultNeutralRpcUrl: string }> = {
+  'eth-mainnet': { chain: mainnet, defaultNeutralRpcUrl: 'https://ethereum-rpc.publicnode.com' },
+  'base-mainnet': { chain: base, defaultNeutralRpcUrl: 'https://base-rpc.publicnode.com' },
+  'opt-mainnet': { chain: optimism, defaultNeutralRpcUrl: 'https://optimism-rpc.publicnode.com' },
+  'arb-mainnet': { chain: arbitrum, defaultNeutralRpcUrl: 'https://arbitrum-one-rpc.publicnode.com' },
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type GridRunner = (config: Config, env: EnvSource) => Promise<ProviderRunResult[]>
@@ -29,13 +39,25 @@ export type RunOnceOptions = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function resolveChain(network: string): Chain {
-  const MAP: Record<string, Chain> = {
-    'eth-mainnet': mainnet,
-    'base-mainnet': base,
-    'opt-mainnet': optimism,
-    'arb-mainnet': arbitrum,
-  }
-  return MAP[network] ?? mainnet
+  return KNOWN_NETWORKS[network]?.chain ?? mainnet
+}
+
+// NETWORKS is a comma-separated list (e.g. "base-mainnet,eth-mainnet,opt-mainnet"),
+// letting one task monitor several networks per hourly run. Falls back to the
+// single NETWORK var (or its default) so existing single-network deployments
+// and tests keep working unchanged.
+function parseNetworks(env: EnvSource): string[] {
+  const raw = env.NETWORKS ?? env.NETWORK ?? 'base-mainnet'
+  const networks = raw.split(',').map(s => s.trim()).filter(Boolean)
+  return networks.length > 0 ? networks : ['base-mainnet']
+}
+
+function resolveNeutralRpcUrl(
+  network: string,
+  credentials: MonitoringCredentials,
+  mergedEnv: EnvSource,
+): string | undefined {
+  return credentials.NEUTRAL_RPC_URLS?.[network] ?? KNOWN_NETWORKS[network]?.defaultNeutralRpcUrl ?? mergedEnv.NEUTRAL_RPC_URL
 }
 
 function buildEnv(credentials: MonitoringCredentials, baseEnv: EnvSource): EnvSource {
@@ -108,14 +130,20 @@ function pushGauges(results: ProviderRunResult[], metrics: MonitorMetrics, netwo
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function runOnce(
+async function runOnceForNetwork(
+  network: string,
   credentials: MonitoringCredentials,
   metrics: MonitorMetrics,
   region: string,
-  { gridRunner, baseEnv = process.env as EnvSource }: RunOnceOptions = {},
+  mergedEnv: EnvSource,
+  runner: GridRunner,
 ): Promise<void> {
-  const runner = gridRunner ?? createDefaultGridRunner()
-  const env = buildEnv(credentials, baseEnv)
+  const neutralRpcUrl = resolveNeutralRpcUrl(network, credentials, mergedEnv)
+  const env: EnvSource = {
+    ...mergedEnv,
+    NETWORK: network,
+    ...(neutralRpcUrl && { NEUTRAL_RPC_URL: neutralRpcUrl }),
+  }
   const config = loadConfig(env)
 
   try {
@@ -126,6 +154,24 @@ export async function runOnce(
     const message = e instanceof Error ? e.message : String(e)
     console.error(JSON.stringify({ event: 'run_error', network: config.network, region, error: message }))
   }
+}
+
+export async function runOnce(
+  credentials: MonitoringCredentials,
+  metrics: MonitorMetrics,
+  region: string,
+  { gridRunner, baseEnv = process.env as EnvSource }: RunOnceOptions = {},
+): Promise<void> {
+  const runner = gridRunner ?? createDefaultGridRunner()
+  const mergedEnv = buildEnv(credentials, baseEnv)
+  const networks = parseNetworks(mergedEnv)
+
+  // Each network runs independently — one network's failure or slow RPC does
+  // not block the others, matching how providers within a network already run
+  // concurrently via Promise.allSettled in runBenchmarkGrid.
+  await Promise.all(
+    networks.map(network => runOnceForNetwork(network, credentials, metrics, region, mergedEnv, runner))
+  )
 }
 
 export function startLoop(

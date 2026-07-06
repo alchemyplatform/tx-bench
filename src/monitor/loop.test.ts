@@ -179,6 +179,89 @@ describe('runOnce', () => {
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: capturingRunner as never, baseEnv: env })
     expect(capturedConfigs[0]?.network).toBe('eth-mainnet')
   })
+
+  it('runs a single network when NETWORKS is absent (backward compatible)', async () => {
+    const metrics = makeMetrics()
+    const runner = mockGridRunner([])
+    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: BASE_ENV })
+    expect(runner).toHaveBeenCalledTimes(1)
+  })
+
+  it('runs every network listed in NETWORKS, once each', async () => {
+    const metrics = makeMetrics()
+    const seenNetworks: string[] = []
+    const runner = mock(async (config: Config) => {
+      seenNetworks.push(config.network)
+      return []
+    })
+    const env: EnvSource = { NETWORKS: 'eth-mainnet,base-mainnet,opt-mainnet' }
+
+    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
+
+    expect(runner).toHaveBeenCalledTimes(3)
+    expect(seenNetworks.sort()).toEqual(['base-mainnet', 'eth-mainnet', 'opt-mainnet'])
+  })
+
+  it('pushes gauges labeled with each network independently', async () => {
+    const metrics = makeMetrics()
+    const runner = mock(async (config: Config) => [
+      makeProviderResult(`provider-${config.network}`, '4337-bundler', 5, 0, true),
+    ])
+    const env: EnvSource = { NETWORKS: 'eth-mainnet,base-mainnet' }
+
+    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
+
+    const p50Values = (await metrics.stageLatencyP50.get()).values
+    const networks = new Set(p50Values.map(v => v.labels['network']))
+    expect(networks.has('eth-mainnet')).toBe(true)
+    expect(networks.has('base-mainnet')).toBe(true)
+  })
+
+  it('one network failing does not prevent other networks from completing', async () => {
+    const metrics = makeMetrics()
+    const runner = mock(async (config: Config) => {
+      if (config.network === 'eth-mainnet') throw new Error('eth rpc down')
+      return [makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', 5, 0, true)]
+    })
+    const env: EnvSource = { NETWORKS: 'eth-mainnet,base-mainnet' }
+
+    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
+
+    const p50Values = (await metrics.stageLatencyP50.get()).values
+    expect(p50Values.some(v => v.labels['network'] === 'base-mainnet')).toBe(true)
+    expect(p50Values.some(v => v.labels['network'] === 'eth-mainnet')).toBe(false)
+  })
+
+  it('resolves a known-network default neutral RPC URL when none is configured', async () => {
+    const metrics = makeMetrics()
+    const capturedEnvs: EnvSource[] = []
+    const runner = mock(async (_config: Config, env: EnvSource) => {
+      capturedEnvs.push(env)
+      return []
+    })
+    // No NEUTRAL_RPC_URL anywhere — should fall back to the built-in default for eth-mainnet
+    const env: EnvSource = { NETWORKS: 'eth-mainnet' }
+
+    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
+    expect(capturedEnvs[0]?.NEUTRAL_RPC_URL).toBe('https://ethereum-rpc.publicnode.com')
+  })
+
+  it('prefers a per-network NEUTRAL_RPC_URLS override from credentials over the built-in default', async () => {
+    const metrics = makeMetrics()
+    const capturedEnvs: EnvSource[] = []
+    const runner = mock(async (_config: Config, env: EnvSource) => {
+      capturedEnvs.push(env)
+      return []
+    })
+    const credsWithOverride: MonitoringCredentials = {
+      ...CREDENTIALS,
+      NEUTRAL_RPC_URLS: { 'eth-mainnet': 'https://custom-eth.example.com' },
+    }
+    const env: EnvSource = { NETWORKS: 'eth-mainnet' }
+
+    await runOnce(credsWithOverride, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
+    expect(capturedEnvs[0]?.NEUTRAL_RPC_URL).toBe('https://custom-eth.example.com')
+  })
 })
 
 describe('buildAdapterEntries', () => {

@@ -63,6 +63,56 @@ describe('loadMonitoringCredentials', () => {
     expect(creds.ALCHEMY_BSO_POLICY_ID).toBe('bso-policy-id')
   })
 
+  it('includes NEUTRAL_RPC_URLS map when present in the secret', async () => {
+    const secret = JSON.stringify({
+      ALCHEMY_API_KEY: 'k',
+      ALCHEMY_POLICY_ID: 'p',
+      OWNER_PRIVATE_KEY: '0x' + 'ff'.repeat(32),
+      NEUTRAL_RPC_URLS: {
+        'eth-mainnet': 'https://eth.example.com',
+        'base-mainnet': 'https://base.example.com',
+      },
+    })
+    const client = makeClient(secret)
+    const creds = await loadMonitoringCredentials('us-east-1', client)
+    expect(creds.NEUTRAL_RPC_URLS).toEqual({
+      'eth-mainnet': 'https://eth.example.com',
+      'base-mainnet': 'https://base.example.com',
+    })
+  })
+
+  it('omits NEUTRAL_RPC_URLS when absent from the secret', async () => {
+    const client = makeClient(VALID_SECRET)
+    const creds = await loadMonitoringCredentials('us-east-1', client)
+    expect(creds.NEUTRAL_RPC_URLS).toBeUndefined()
+  })
+
+  it('throws when NEUTRAL_RPC_URLS is not an object', async () => {
+    const secret = JSON.stringify({
+      ALCHEMY_API_KEY: 'k',
+      ALCHEMY_POLICY_ID: 'p',
+      OWNER_PRIVATE_KEY: '0x' + '11'.repeat(32),
+      NEUTRAL_RPC_URLS: 'not-an-object',
+    })
+    const client = makeClient(secret)
+    await expect(loadMonitoringCredentials('us-east-1', client)).rejects.toThrow(
+      'NEUTRAL_RPC_URLS must be a JSON object',
+    )
+  })
+
+  it('throws when a NEUTRAL_RPC_URLS value is not a string', async () => {
+    const secret = JSON.stringify({
+      ALCHEMY_API_KEY: 'k',
+      ALCHEMY_POLICY_ID: 'p',
+      OWNER_PRIVATE_KEY: '0x' + '22'.repeat(32),
+      NEUTRAL_RPC_URLS: { 'eth-mainnet': 12345 },
+    })
+    const client = makeClient(secret)
+    await expect(loadMonitoringCredentials('us-east-1', client)).rejects.toThrow(
+      'NEUTRAL_RPC_URLS["eth-mainnet"] must be a string',
+    )
+  })
+
   it('throws a descriptive error when ALCHEMY_API_KEY is missing', async () => {
     const secret = JSON.stringify({
       ALCHEMY_POLICY_ID: 'p',
