@@ -48,6 +48,19 @@ describe('loadMonitoringCredentials', () => {
     const creds = await loadMonitoringCredentials('us-east-1', client)
     expect(creds.NEUTRAL_RPC_URL).toBeUndefined()
     expect(creds.ALCHEMY_RPC_URL).toBeUndefined()
+    expect(creds.ALCHEMY_BSO_POLICY_ID).toBeUndefined()
+  })
+
+  it('includes ALCHEMY_BSO_POLICY_ID when present in the secret', async () => {
+    const secret = JSON.stringify({
+      ALCHEMY_API_KEY: 'k',
+      ALCHEMY_POLICY_ID: 'p',
+      OWNER_PRIVATE_KEY: '0x' + 'ee'.repeat(32),
+      ALCHEMY_BSO_POLICY_ID: 'bso-policy-id',
+    })
+    const client = makeClient(secret)
+    const creds = await loadMonitoringCredentials('us-east-1', client)
+    expect(creds.ALCHEMY_BSO_POLICY_ID).toBe('bso-policy-id')
   })
 
   it('throws a descriptive error when ALCHEMY_API_KEY is missing', async () => {

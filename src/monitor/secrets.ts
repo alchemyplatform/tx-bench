@@ -7,6 +7,7 @@ export type MonitoringCredentials = {
   ALCHEMY_API_KEY: string
   ALCHEMY_POLICY_ID: string
   OWNER_PRIVATE_KEY: `0x${string}`
+  ALCHEMY_BSO_POLICY_ID?: string
   NEUTRAL_RPC_URL?: string
   ALCHEMY_RPC_URL?: string
 }
@@ -41,6 +42,7 @@ export async function loadMonitoringCredentials(
     ALCHEMY_API_KEY: obj['ALCHEMY_API_KEY'] as string,
     ALCHEMY_POLICY_ID: obj['ALCHEMY_POLICY_ID'] as string,
     OWNER_PRIVATE_KEY: ownerPrivateKey as `0x${string}`,
+    ...(typeof obj['ALCHEMY_BSO_POLICY_ID'] === 'string' && { ALCHEMY_BSO_POLICY_ID: obj['ALCHEMY_BSO_POLICY_ID'] }),
     ...(typeof obj['NEUTRAL_RPC_URL'] === 'string' && { NEUTRAL_RPC_URL: obj['NEUTRAL_RPC_URL'] }),
     ...(typeof obj['ALCHEMY_RPC_URL'] === 'string' && { ALCHEMY_RPC_URL: obj['ALCHEMY_RPC_URL'] }),
   }

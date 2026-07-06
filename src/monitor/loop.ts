@@ -6,14 +6,14 @@ import { buildRows, getRunnableRows } from '../benchmark/rows.js'
 import { createCanonicalOracle } from '../benchmark/oracle/canonical.js'
 import { createFlashblockOracle } from '../benchmark/oracle/flashblocks.js'
 import { runBenchmarkGrid, type ProviderEntry, type ProviderRunResult } from '../benchmark/service.js'
-import { alchemyAdapter } from '../benchmark/providers/alchemy.js'
-import { alchemyMAv2Adapter } from '../benchmark/providers/alchemy-mav2.js'
 import { alchemyMAv2BSOAdapter } from '../benchmark/providers/alchemy-mav2-bso.js'
 import { alchemyWalletSendCallsAdapter } from '../benchmark/providers/alchemy-wallet-sendcalls.js'
 import type { MonitoringCredentials } from './secrets.js'
 import type { MonitorMetrics } from './metrics.js'
 
-const ALCHEMY_ADAPTERS = [alchemyAdapter, alchemyMAv2Adapter, alchemyMAv2BSOAdapter, alchemyWalletSendCallsAdapter]
+// Monitoring covers only these two adapters for now — MAv2 BSO (ERC-4337) and
+// Wallet SendCalls (EIP-7702) — per operator decision. Others can be added later.
+const ALCHEMY_ADAPTERS = [alchemyMAv2BSOAdapter, alchemyWalletSendCallsAdapter]
 const NO_OP_WS = (_url: string) => ({ readyState: 3, send: () => {}, close: () => {}, onopen: null, onclose: null, onerror: null, onmessage: null })
 const MONITORING_RUN_COUNT_DEFAULT = 20
 
@@ -44,6 +44,7 @@ function buildEnv(credentials: MonitoringCredentials, baseEnv: EnvSource): EnvSo
     ALCHEMY_API_KEY: credentials.ALCHEMY_API_KEY,
     ALCHEMY_POLICY_ID: credentials.ALCHEMY_POLICY_ID,
     OWNER_PRIVATE_KEY: credentials.OWNER_PRIVATE_KEY,
+    ...(credentials.ALCHEMY_BSO_POLICY_ID && { ALCHEMY_BSO_POLICY_ID: credentials.ALCHEMY_BSO_POLICY_ID }),
     ...(credentials.NEUTRAL_RPC_URL && { NEUTRAL_RPC_URL: credentials.NEUTRAL_RPC_URL }),
     ...(credentials.ALCHEMY_RPC_URL && { ALCHEMY_RPC_URL: credentials.ALCHEMY_RPC_URL }),
     // Use a monitoring-appropriate default run count unless already set in baseEnv
@@ -51,7 +52,7 @@ function buildEnv(credentials: MonitoringCredentials, baseEnv: EnvSource): EnvSo
   }
 }
 
-function buildAdapterEntries(env: EnvSource): ProviderEntry[] {
+export function buildAdapterEntries(env: EnvSource): ProviderEntry[] {
   const rows = buildRows(env)
   const runnable = getRunnableRows(rows)
   const adapterMap = new Map(ALCHEMY_ADAPTERS.map(a => [a.id, a]))

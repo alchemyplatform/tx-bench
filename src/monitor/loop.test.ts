@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test'
 import { Registry } from 'prom-client'
 import { buildMetrics } from './metrics'
-import { runOnce } from './loop'
+import { runOnce, buildAdapterEntries } from './loop'
 import type { MonitoringCredentials } from './secrets'
 import type { ProviderRunResult } from '../benchmark/service'
 import type { Config, EnvSource } from '../benchmark/config'
@@ -178,5 +178,45 @@ describe('runOnce', () => {
 
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: capturingRunner as never, baseEnv: env })
     expect(capturedConfigs[0]?.network).toBe('eth-mainnet')
+  })
+})
+
+describe('buildAdapterEntries', () => {
+  it('includes only alchemy-mav2-bso and alchemy-wallet-sendcalls when fully configured', () => {
+    const env: EnvSource = {
+      ALCHEMY_API_KEY: 'k',
+      ALCHEMY_POLICY_ID: 'p',
+      ALCHEMY_BSO_POLICY_ID: 'bso-p',
+    }
+    const entries = buildAdapterEntries(env)
+    const ids = entries.map(e => e.row.id).sort()
+    expect(ids).toEqual(['alchemy-mav2-bso', 'alchemy-wallet-sendcalls'])
+  })
+
+  it('excludes alchemy-mav2-bso when ALCHEMY_BSO_POLICY_ID is absent', () => {
+    const env: EnvSource = { ALCHEMY_API_KEY: 'k', ALCHEMY_POLICY_ID: 'p' }
+    const entries = buildAdapterEntries(env)
+    const ids = entries.map(e => e.row.id)
+    expect(ids).not.toContain('alchemy-mav2-bso')
+    expect(ids).toContain('alchemy-wallet-sendcalls')
+  })
+
+  it('never includes non-target adapters even when their env vars are present', () => {
+    const env: EnvSource = {
+      ALCHEMY_API_KEY: 'k',
+      ALCHEMY_POLICY_ID: 'p',
+      ALCHEMY_BSO_POLICY_ID: 'bso-p',
+      PIMLICO_API_KEY: 'pk',
+      PIMLICO_POLICY_ID: 'pp',
+      ZERODEV_API_KEY: 'zk',
+      ZERODEV_PROJECT_ID: 'zp',
+    }
+    const entries = buildAdapterEntries(env)
+    const ids = entries.map(e => e.row.id)
+    expect(ids).not.toContain('pimlico-safe')
+    expect(ids).not.toContain('zerodev-kernel')
+    expect(ids).not.toContain('zerodev-ultrarelay')
+    expect(ids).not.toContain('alchemy-light-account')
+    expect(ids).not.toContain('alchemy-modular-account-v2')
   })
 })
