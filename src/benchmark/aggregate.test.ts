@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { median, p95, computeStageMetrics, aggregateRuns } from './aggregate'
+import { median, p95, p99, computeStageMetrics, aggregateRuns } from './aggregate'
 import type { RunRecord } from './contracts'
 
 // ── median / p95 ──────────────────────────────────────────────────────────────
@@ -22,13 +22,33 @@ describe('p95', () => {
   })
 })
 
+describe('p99', () => {
+  it('returns 0 for empty input', () => expect(p99([])).toBe(0))
+  it('returns the single value for a one-element array', () => expect(p99([42])).toBe(42))
+  it('returns the highest value for a two-element array', () => expect(p99([10, 20])).toBe(20))
+  it('selects the 99th-percentile bucket', () => {
+    const values = Array.from({ length: 100 }, (_, i) => i + 1) // 1..100
+    expect(p99(values)).toBe(99)
+  })
+  it('is >= p95 for any input', () => {
+    const values = [10, 50, 100, 200, 500, 1000, 9999]
+    expect(p99(values)).toBeGreaterThanOrEqual(p95(values))
+  })
+})
+
 describe('computeStageMetrics', () => {
   it('returns undefined for empty input', () => expect(computeStageMetrics([])).toBeUndefined())
-  it('returns median, p95, and count', () => {
+  it('returns median, p95, p99, and count', () => {
     const result = computeStageMetrics([100, 200, 300])
     expect(result?.median).toBe(200)
     expect(result?.p95).toBe(300)
+    expect(result?.p99).toBe(300)
     expect(result?.count).toBe(3)
+  })
+  it('p99 matches standalone p99() for same input', () => {
+    const values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    const result = computeStageMetrics(values)
+    expect(result?.p99).toBe(p99(values))
   })
 })
 
@@ -66,6 +86,7 @@ describe('aggregateRuns', () => {
     expect(metrics.failureCount).toBe(0)
     expect(metrics.stages.submit?.median).toBe(200)
     expect(metrics.stages.submit?.p95).toBe(300)
+    expect(metrics.stages.submit?.p99).toBe(300)
     expect(metrics.stages.submit?.count).toBe(3)
     expect(metrics.stages.canonical?.median).toBe(2000)
   })

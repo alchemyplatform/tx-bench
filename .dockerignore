@@ -1,0 +1,9 @@
+.git
+.claude
+docs
+scripts
+web
+node_modules
+dist
+*.md
+.env*

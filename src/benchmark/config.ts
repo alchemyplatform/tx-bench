@@ -117,7 +117,7 @@ export function loadConfig(env: EnvSource = process.env): Config {
         policyId: normalized.ALCHEMY_POLICY_ID!,
         rpcUrl:
           raw.ALCHEMY_RPC_URL ??
-          `https://base-mainnet.g.alchemy.com/v2/${normalized.ALCHEMY_API_KEY!}`,
+          `https://${raw.NETWORK}.g.alchemy.com/v2/${normalized.ALCHEMY_API_KEY!}`,
         bsoPolicyId: normalized.ALCHEMY_BSO_POLICY_ID ?? null,
       }
     : null

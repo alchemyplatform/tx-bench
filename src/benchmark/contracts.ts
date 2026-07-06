@@ -60,6 +60,7 @@ export type RunRecord = {
 export type StageMetrics = {
   median: number
   p95: number
+  p99: number
   count: number
 }
 

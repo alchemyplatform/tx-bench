@@ -18,9 +18,16 @@ export function p95(values: readonly number[]): number {
   return sorted[idx]!
 }
 
+export function p99(values: readonly number[]): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  const idx = Math.max(0, Math.ceil(sorted.length * 0.99) - 1)
+  return sorted[idx]!
+}
+
 export function computeStageMetrics(values: readonly number[]): StageMetrics | undefined {
   if (values.length === 0) return undefined
-  return { median: median(values), p95: p95(values), count: values.length }
+  return { median: median(values), p95: p95(values), p99: p99(values), count: values.length }
 }
 
 // ── Per-provider aggregation ──────────────────────────────────────────────────
