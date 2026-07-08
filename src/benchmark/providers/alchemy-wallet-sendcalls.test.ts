@@ -377,7 +377,7 @@ describe('alchemyWalletSendCallsAdapter — ensureDeployed (self-bootstrap)', ()
 
     expect(result.inlineCanonical).toBeDefined()
     expect(result.inlineCanonical!.status).toBe('ok')
-    expect(result.inlineCanonical!.blockNumber).toBe(100n)
+    expect((result.inlineCanonical as { blockNumber: bigint }).blockNumber).toBe(100n)
   })
 
   it('Covers AE4 (R6): sendSponsored failure propagates (no auto recovery)', async () => {
@@ -555,7 +555,7 @@ describe('alchemyWalletSendCallsAdapter — prepare/send stage refactor', () => 
 
     expect(result.inlineCanonical).toBeDefined()
     expect(result.inlineCanonical!.status).toBe('ok')
-    expect(result.inlineCanonical!.blockNumber).toBe(100n)
+    expect((result.inlineCanonical as { blockNumber: bigint }).blockNumber).toBe(100n)
   })
 
   it('edge case: sendPreparedCalls succeeds but waitForCallsStatus returns failure → integrity-fail', async () => {
