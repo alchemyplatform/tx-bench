@@ -70,11 +70,25 @@ export async function runPreflight(
   if (config.providers.zerodev) providerUrls.push(config.providers.zerodev.rpcUrl)
 
   // ── 2. Neutrality guard — neutral node must not overlap any provider ──────────
+  // The neutral canonical oracle must be independent of the contestants so no
+  // provider times itself. Exception: when EVERY runnable provider is Alchemy,
+  // there is no non-Alchemy contestant to disadvantage, so an Alchemy neutral RPC
+  // is permitted (with a warning) — useful when independent nodes are unreliable
+  // for a given chain. Mixed-provider runs still enforce the guard as an error.
+  const allRunnableAlchemy = runnableRows.length > 0 && runnableRows.every(r => r.id.startsWith('alchemy-'))
   if (isNeutralOverlap(config.neutral.rpcUrl, providerUrls)) {
-    errors.push(
-      `Neutral RPC (${config.neutral.rpcUrl}) overlaps a benchmarked provider — ` +
-      'use an independent node for the neutral canonical endpoint'
-    )
+    if (allRunnableAlchemy) {
+      warnings.push(
+        `Neutral RPC (${config.neutral.rpcUrl}) overlaps the Alchemy provider(s), ` +
+        'but all runnable providers are Alchemy — no contestant is disadvantaged. ' +
+        'Canonical timing will use the Alchemy node.',
+      )
+    } else {
+      errors.push(
+        `Neutral RPC (${config.neutral.rpcUrl}) overlaps a benchmarked provider — ` +
+        'use an independent node for the neutral canonical endpoint'
+      )
+    }
   }
 
   if (errors.length > 0) {
