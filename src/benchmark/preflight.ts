@@ -107,8 +107,11 @@ export async function runPreflight(
     runnableRows
       .filter(r => r.protocolClass === '4337-bundler')
       .map(async row => {
+        // Map each 4337 provider row to its RPC URL for the chain-id agreement
+        // check. Alchemy adapters (light-account, mav2, mav2-bso) all use the
+        // Alchemy RPC; only the id prefix distinguishes the provider.
         const rpcUrl =
-          row.id === 'alchemy-light-account'
+          row.id.startsWith('alchemy-')
             ? config.providers.alchemy?.rpcUrl
             : row.id === 'pimlico-safe'
             ? config.providers.pimlico?.rpcUrl
