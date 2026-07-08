@@ -64,7 +64,7 @@ export async function runBenchmarkGrid(
       const client = clientMap.get(row.id)
       if (!client || typeof client.ensureDeployed !== 'function') return
       try {
-        await withTimeout(client.ensureDeployed(), BOOTSTRAP_PHASE_TIMEOUT_MS, `bootstrap timeout for ${row.id}`)
+        await withTimeout((signal) => client.ensureDeployed!(signal), BOOTSTRAP_PHASE_TIMEOUT_MS, `bootstrap timeout for ${row.id}`)
       } catch (e) {
         buildErrors.set(row.id, serializeErrorRedacted(e, config.ownerPrivateKey).message)
       }
@@ -155,14 +155,16 @@ export async function runBenchmarkGrid(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+export function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, ms: number, message: string): Promise<T> {
+  const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), ms)
-    }),
-  ]).finally(() => {
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort()
+      reject(new Error(message))
+    }, ms)
+  })
+  return Promise.race([fn(controller.signal), timeout]).finally(() => {
     if (timer) clearTimeout(timer)
   })
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { runBenchmarkGrid, type ProviderEntry } from './service'
+import { runBenchmarkGrid, withTimeout, type ProviderEntry } from './service'
 import type { Config } from './config'
 import type { CanonicalOracle } from './oracle/canonical'
 import type { FlashblockOracle } from './oracle/flashblocks'
@@ -435,5 +435,36 @@ describe('runBenchmarkGrid — private-key redaction in errors', () => {
       expect(record.error).not.toContain(TEST_OWNER_KEY)
       expect(record.error).not.toContain(TEST_BARE_KEY)
     }
+  })
+})
+
+// ── withTimeout ───────────────────────────────────────────────────────────────
+
+describe('withTimeout', () => {
+  it('resolves with the value when the factory completes before the timeout', async () => {
+    const result = await withTimeout(() => Promise.resolve('ok'), 1000, 'timed out')
+    expect(result).toBe('ok')
+  })
+
+  it('rejects with the timeout message when the factory never resolves', async () => {
+    const never = new Promise<string>(() => {}) // never resolves
+    await expect(withTimeout(() => never, 50, 'bootstrap timeout for test')).rejects.toThrow(
+      'bootstrap timeout for test',
+    )
+  })
+
+  it('aborts the signal when the timeout fires so background polling can wind down', async () => {
+    let observedAbort = false
+    const slow = (signal: AbortSignal) =>
+      new Promise<string>((_, reject) => {
+        signal.addEventListener('abort', () => {
+          observedAbort = true
+          reject(new Error('aborted'))
+        })
+      })
+    // The timeout fires and aborts the signal; the factory may surface either the
+    // timeout message or its own abort rejection — either way the signal aborted.
+    await expect(withTimeout(slow, 50, 'timed out')).rejects.toThrow()
+    expect(observedAbort).toBe(true)
   })
 })

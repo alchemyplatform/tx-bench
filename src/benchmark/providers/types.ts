@@ -25,7 +25,9 @@ export interface AccountClient {
   // Optional: called once after buildAccountClient and before the timed loop to
   // ensure the account is deployed on-chain (e.g. stable-owner self-bootstrap).
   // When absent, the service skips it. Excluded from all metrics.
-  ensureDeployed?(): Promise<void>
+  // The service may pass an AbortSignal so a bootstrap timeout can wind down
+  // background polling instead of orphaning the promise.
+  ensureDeployed?(signal?: AbortSignal): Promise<void>
 }
 
 export interface ProviderAdapter {

@@ -50,7 +50,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
 
   // ── Stable-owner self-bootstrap ─────────────────────────────────────────────
 
-  private async _ensureDeployed(): Promise<void> {
+  private async _ensureDeployed(signal?: AbortSignal): Promise<void> {
     if (!this.stableOwner) return
 
     const signerAddress = this.stableOwner.address
@@ -70,6 +70,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     // Poll until delegation is observable, with a bounded timeout.
     const deadline = Date.now() + BOOTSTRAP_POLL_TIMEOUT_MS
     while (Date.now() < deadline) {
+      if (signal?.aborted) throw new Error('Bootstrap aborted')
       await sleep(BOOTSTRAP_POLL_INTERVAL_MS)
       // Tolerate transient getCode RPC errors during polling (rate limits,
       // temporary 5xx, network blips) — only the deadline aborts the bootstrap.
