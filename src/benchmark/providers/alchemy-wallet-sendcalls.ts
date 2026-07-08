@@ -1,4 +1,5 @@
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
+import { createPublicClient, http } from 'viem'
 import type { Chain } from 'viem'
 import { createSmartWalletClient, alchemyWalletTransport } from '@alchemy/wallet-apis'
 import type { Config } from '../config.js'
@@ -11,10 +12,22 @@ import { resolveChain } from '../chains.js'
 type ClientFactory = typeof createSmartWalletClient
 type KeyGen = typeof generatePrivateKey
 type ChainResolver = (network: string) => Chain
+type GetCodeFn = (address: `0x${string}`) => Promise<string | undefined>
+type SendSetupOpFn = (signer: ReturnType<typeof privateKeyToAccount>) => Promise<void>
+
+// ── Bootstrap polling config ──────────────────────────────────────────────────
+
+const BOOTSTRAP_POLL_INTERVAL_MS = 2_000
+const BOOTSTRAP_POLL_TIMEOUT_MS = 30_000
 
 // ── AccountClient impl ────────────────────────────────────────────────────────
 
 class AlchemyWalletSendCallsAccountClient implements AccountClient {
+  // Only set when a stable owner key is configured; undefined in random mode.
+  private readonly stableOwner: ReturnType<typeof privateKeyToAccount> | undefined
+  // ensureDeployed is only attached when stableOwner is set (see constructor).
+  readonly ensureDeployed?: () => Promise<void>
+
   constructor(
     private readonly apiKey: string,
     private readonly policyId: string,
@@ -23,13 +36,89 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     private readonly createClient: ClientFactory,
     private readonly genKey: KeyGen,
     private readonly chainResolver: ChainResolver = resolveChain,
-  ) {}
+    ownerPrivateKey?: `0x${string}`,
+    private readonly getCodeFn?: GetCodeFn,
+    private readonly sendSetupOpFn?: SendSetupOpFn,
+  ) {
+    if (ownerPrivateKey) {
+      this.stableOwner = privateKeyToAccount(ownerPrivateKey)
+      // Attach ensureDeployed only when a stable key is set, so the service's
+      // `typeof client.ensureDeployed !== 'function'` check skips it in random mode.
+      this.ensureDeployed = this._ensureDeployed.bind(this)
+    }
+  }
+
+  // ── Stable-owner self-bootstrap ─────────────────────────────────────────────
+
+  private async _ensureDeployed(): Promise<void> {
+    if (!this.stableOwner) return
+
+    const signerAddress = this.stableOwner.address
+    const chain = this.chainResolver(this.network)
+
+    // Resolve the getCode function (injected for tests, real for production).
+    const getCode = this.getCodeFn ?? this._makeGetCode(chain)
+
+    // Check if EIP-7702 delegation is already set (non-empty code at the EOA).
+    const existingCode = await getCode(signerAddress)
+    if (existingCode && existingCode !== '0x') return
+
+    // Not set up — send one untimed setup op via the current sendCalls path.
+    const sendSetup = this.sendSetupOpFn ?? ((signer) => this._sendSetupOp(signer))
+    await sendSetup(this.stableOwner)
+
+    // Poll until delegation is observable, with a bounded timeout.
+    const deadline = Date.now() + BOOTSTRAP_POLL_TIMEOUT_MS
+    while (Date.now() < deadline) {
+      await sleep(BOOTSTRAP_POLL_INTERVAL_MS)
+      const code = await getCode(signerAddress)
+      if (code && code !== '0x') return
+    }
+
+    throw new Error(
+      `Bootstrap timeout: EIP-7702 account ${signerAddress} not delegated within ${BOOTSTRAP_POLL_TIMEOUT_MS / 1000}s`,
+    )
+  }
+
+  private _makeGetCode(chain: Chain): GetCodeFn {
+    const publicClient = createPublicClient({
+      chain,
+      transport: http(`https://${this.network}.g.alchemy.com/v2/${this.apiKey}`),
+    })
+    return (addr) => publicClient.getCode({ address: addr })
+  }
+
+  private async _sendSetupOp(signer: ReturnType<typeof privateKeyToAccount>): Promise<void> {
+    const chain = this.chainResolver(this.network)
+    const client = this.createClient({
+      signer,
+      transport: alchemyWalletTransport({ apiKey: this.apiKey }),
+      chain,
+      paymaster: { policyId: this.policyId },
+    })
+
+    const { id: callId } = await client.sendCalls({
+      calls: [{ to: '0x000000000000000000000000000000000000dEaD', data: '0x', value: 0n }],
+    })
+
+    // Wait for setup success before returning.
+    const status = await client.waitForCallsStatus({
+      id: callId,
+      timeout: this.canonicalTimeoutMs,
+    })
+
+    if (status.status !== 'success') {
+      throw new Error(`EIP-7702 setup op failed with status: ${status.status}`)
+    }
+  }
+
+  // ── Timed send ─────────────────────────────────────────────────────────────
 
   async sendSponsored(): Promise<SponsoredResult> {
     const tStart = performance.now()
 
-    const key = this.genKey()
-    const signer = privateKeyToAccount(key)
+    // Use the stable owner when configured; fall back to per-call random key.
+    const signer = this.stableOwner ?? privateKeyToAccount(this.genKey())
 
     const chain = this.chainResolver(this.network)
 
@@ -84,16 +173,24 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 // ── Adapter factory ───────────────────────────────────────────────────────────
 
 export function createAlchemyWalletSendCallsAdapter(deps?: {
   createClient?: ClientFactory
   generateKey?: KeyGen
   chainResolver?: ChainResolver
+  getCodeFn?: GetCodeFn
+  sendSetupOpFn?: SendSetupOpFn
 }): ProviderAdapter {
   const createClient = deps?.createClient ?? createSmartWalletClient
   const genKey = deps?.generateKey ?? generatePrivateKey
   const chainResolver = deps?.chainResolver ?? resolveChain
+  const getCodeFn = deps?.getCodeFn
+  const sendSetupOpFn = deps?.sendSetupOpFn
 
   return {
     id: 'alchemy-wallet-sendcalls',
@@ -113,6 +210,9 @@ export function createAlchemyWalletSendCallsAdapter(deps?: {
         createClient,
         genKey,
         chainResolver,
+        config.ownerPrivateKey,
+        getCodeFn,
+        sendSetupOpFn,
       )
     },
   }
