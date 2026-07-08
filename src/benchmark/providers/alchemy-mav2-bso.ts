@@ -95,12 +95,15 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
 
   private async _sendDeployUserOp(account: unknown): Promise<void> {
     const chain = this.chainResolver(this.network)
+    const readTransport = alchemyTransport({ apiKey: this.apiKey })
+    const publicClient = createPublicClient({ chain, transport: readTransport })
     const bundlerTransport = alchemyTransport({
       apiKey: this.apiKey,
       fetchOptions: { headers: { 'x-alchemy-policy-id': this.bsoPolicyId } },
     })
     const bundlerClient = createBundlerClient({
       account: account as NonNullable<Parameters<typeof createBundlerClient>[0]['account']>,
+      client: publicClient,
       chain,
       transport: bundlerTransport,
       userOperation: { estimateFeesPerGas },
@@ -137,12 +140,14 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
 
     const bundlerClient = createBundlerClient({
       account,
+      client: publicClient,
       chain,
       transport: bundlerTransport,
       userOperation: { estimateFeesPerGas },
     })
 
-    // Zero gas fields: BSO bundler fills them server-side.
+    // BSO bundler sponsors gas. Per Alchemy's BSO docs, zero ALL three gas
+    // fields — that is the signal for the bundler to cover gas under the policy.
     // Use a non-self target — MAv2 encodeCalls short-circuits when to === accountAddress
     // (passes data through directly), producing callData: '0x' and AA23 reverts.
     const userOpHash = await bundlerClient.sendUserOperation({
