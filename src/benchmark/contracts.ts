@@ -38,6 +38,8 @@ export type RunRecord = {
     preconf: Stage
     canonical: Stage
     providerReceipt: Stage
+    prepare?: Stage  // Optional decomposition of submit (Wallet SendCalls only)
+    send?: Stage     // Optional decomposition of submit (Wallet SendCalls only)
   }
   blockPositions: {
     preconf?: BlockPosition
@@ -75,5 +77,7 @@ export type ProviderMetrics = {
     preconf?: StageMetrics
     canonical?: StageMetrics
     providerReceipt?: StageMetrics
+    prepare?: StageMetrics  // Optional decomposition of submit (Wallet SendCalls only)
+    send?: StageMetrics     // Optional decomposition of submit (Wallet SendCalls only)
   }
 }

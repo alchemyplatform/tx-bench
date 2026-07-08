@@ -101,20 +101,44 @@ export function renderTable(output: RunOutput): string {
     lines.push('   Uses wallet_sendCalls (EIP-5792) with EIP-7702 delegation, not ERC-4337.')
     lines.push('   Submit = time to call ID; Canonical = time from call ID to tx mined.')
     lines.push('')
-    lines.push(
-      col('Provider', 28) +
-      col('Submit  (med/p95)', 22) +
-      col('Canonical (med/p95)', 22)
-    )
-    lines.push(hr(72))
 
-    for (const { row, metrics } of walletResults) {
-      const failNote = metrics.failureCount > 0 ? ` [${metrics.failureCount}/${metrics.runCount} failed]` : ''
+    // Check if any wallet result has prepare/send decomposition
+    const hasPrepareSend = walletResults.some(r => r.metrics.stages.prepare || r.metrics.stages.send)
+
+    if (hasPrepareSend) {
       lines.push(
-        col(row.label + failNote, 28) +
-        col(fmtStage(metrics.stages.submit), 22) +
-        col(fmtStage(metrics.stages.canonical), 22)
+        col('Provider', 28) +
+        col('Prepare (med/p95)', 22) +
+        col('Send  (med/p95)', 22) +
+        col('Canonical (med/p95)', 22)
       )
+      lines.push(hr(94))
+
+      for (const { row, metrics } of walletResults) {
+        const failNote = metrics.failureCount > 0 ? ` [${metrics.failureCount}/${metrics.runCount} failed]` : ''
+        lines.push(
+          col(row.label + failNote, 28) +
+          col(fmtStage(metrics.stages.prepare), 22) +
+          col(fmtStage(metrics.stages.send), 22) +
+          col(fmtStage(metrics.stages.canonical), 22)
+        )
+      }
+    } else {
+      lines.push(
+        col('Provider', 28) +
+        col('Submit  (med/p95)', 22) +
+        col('Canonical (med/p95)', 22)
+      )
+      lines.push(hr(72))
+
+      for (const { row, metrics } of walletResults) {
+        const failNote = metrics.failureCount > 0 ? ` [${metrics.failureCount}/${metrics.runCount} failed]` : ''
+        lines.push(
+          col(row.label + failNote, 28) +
+          col(fmtStage(metrics.stages.submit), 22) +
+          col(fmtStage(metrics.stages.canonical), 22)
+        )
+      }
     }
   }
 

@@ -42,7 +42,7 @@ export function aggregateRuns(
 
   function collectMs(stage: keyof RunRecord['stages']): number[] {
     return successRecords
-      .map(r => r.stages[stage].ms)
+      .map(r => r.stages[stage]?.ms)
       .filter((ms): ms is number => ms != null)
   }
 
@@ -57,6 +57,8 @@ export function aggregateRuns(
       preconf: computeStageMetrics(collectMs('preconf')),
       canonical: computeStageMetrics(collectMs('canonical')),
       providerReceipt: computeStageMetrics(collectMs('providerReceipt')),
+      prepare: computeStageMetrics(collectMs('prepare')),
+      send: computeStageMetrics(collectMs('send')),
     },
   }
 }

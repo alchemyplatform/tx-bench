@@ -7,6 +7,11 @@ export type SponsoredResult = {
   protocolClass: ProtocolClass
   submitMs: number
   accountAddress: `0x${string}`
+  // Optional decomposition of submitMs into prepare + send stages.
+  // When present, submitMs should equal prepareMs + sendMs (compatibility total).
+  // Only the Wallet SendCalls adapter populates these (R8/R9).
+  prepareMs?: number
+  sendMs?: number
   // Set by wallet-sendcalls adapters which resolve canonical timing internally.
   // When present, service.ts skips the neutral canonicalOracle.watch() call.
   inlineCanonical?: CanonicalResult

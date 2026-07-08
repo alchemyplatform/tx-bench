@@ -77,6 +77,8 @@ export type StageRow = {
   runCount: number
   failureCount: number
   submit?: { median: number; p95: number; count: number }
+  prepare?: { median: number; p95: number; count: number }
+  send?: { median: number; p95: number; count: number }
   preconf?: { median: number; p95: number; count: number }
   canonical?: { median: number; p95: number; count: number }
   preconfAvailable: boolean
