@@ -1,6 +1,6 @@
 import { buildRunRecord } from './metrics.js'
 import { aggregateRuns } from './aggregate.js'
-import { serializeError, serializeErrorRedacted } from './serialize.js'
+import { serializeErrorRedacted } from './serialize.js'
 import type { Config } from './config.js'
 import type { ProtocolClass, ProviderMetrics, ProviderRow, RunRecord } from './contracts.js'
 import type { ProviderAdapter } from './providers/types.js'
@@ -54,12 +54,17 @@ export async function runBenchmarkGrid(
   // This is excluded from all metrics (runs before the timed loop). A bootstrap
   // failure is treated the same as a build failure — all timed iterations for
   // that provider are recorded as failures, other providers are unaffected.
+  //
+  // An overall per-provider timeout guards against a hanging ensureDeployed()
+  // (e.g. a slow setup op + polling) blocking the entire benchmark before any
+  // timed iterations run. A timeout is recorded as a build error.
+  const BOOTSTRAP_PHASE_TIMEOUT_MS = 60_000
   await Promise.allSettled(
     providers.map(async ({ row }) => {
       const client = clientMap.get(row.id)
       if (!client || typeof client.ensureDeployed !== 'function') return
       try {
-        await client.ensureDeployed()
+        await withTimeout(client.ensureDeployed(), BOOTSTRAP_PHASE_TIMEOUT_MS, `bootstrap timeout for ${row.id}`)
       } catch (e) {
         buildErrors.set(row.id, serializeErrorRedacted(e, config.ownerPrivateKey).message)
       }
@@ -145,5 +150,19 @@ export async function runBenchmarkGrid(
       records,
       metrics: aggregateRuns(row.id, row.protocolClass as ProtocolClass, row.accountTypeLabel, records),
     }
+  })
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms)
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer)
   })
 }

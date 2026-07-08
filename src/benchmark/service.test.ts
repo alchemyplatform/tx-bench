@@ -187,7 +187,6 @@ describe('runBenchmarkGrid — ensureDeployed bootstrap', () => {
   it('calls ensureDeployed exactly once before the timed loop', async () => {
     addrCounter = 0
     let deployCallCount = 0
-    let sendSponsoredCallOrder: number[] = []
     let deployCallOrder = 0
     const providers: ProviderEntry[] = [
       {

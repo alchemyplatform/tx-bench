@@ -77,8 +77,14 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
     const deadline = Date.now() + BOOTSTRAP_POLL_TIMEOUT_MS
     while (Date.now() < deadline) {
       await sleep(BOOTSTRAP_POLL_INTERVAL_MS)
-      const code = await getCode(accountAddress)
-      if (code && code !== '0x') return
+      // Tolerate transient getCode RPC errors during polling (rate limits,
+      // temporary 5xx, network blips) — only the deadline aborts the bootstrap.
+      try {
+        const code = await getCode(accountAddress)
+        if (code && code !== '0x') return
+      } catch {
+        // transient RPC error — keep polling until the deadline
+      }
     }
 
     throw new Error(

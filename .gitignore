@@ -5,3 +5,7 @@ dist/
 results*.json
 runs/
 progress.md
+
+# Local agent artifacts and OS noise
+.pi-subagents/
+.DS_Store
