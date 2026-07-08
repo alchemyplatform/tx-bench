@@ -31,9 +31,10 @@ function makeConfig(network = 'base-mainnet', ownerPrivateKey?: `0x${string}`): 
 function makeMockCreateClient(chainCaptures: Chain[]) {
   const fn = (params: { chain: Chain; signer: unknown; [k: string]: unknown }) => {
     chainCaptures.push(params.chain)
-    const signerAddr = (params.signer as { address: `0x${string}` }).address
     return {
-      sendCalls: async () => ({ id: '0x' + '1'.repeat(64) }),
+      prepareCalls: async () => ({ type: 'user-operation-v060', data: {} }),
+      signPreparedCalls: async () => ({ type: 'user-operation-v060', data: {}, signature: { type: 'secp256k1', data: '0x' + 'f'.repeat(130) } }),
+      sendPreparedCalls: async () => ({ id: '0x' + '1'.repeat(64) }),
       waitForCallsStatus: async () => ({
         status: 'success',
         receipts: [{ blockNumber: 100n, transactionHash: '0x' + '2'.repeat(64) }],
@@ -150,10 +151,12 @@ describe('alchemyWalletSendCallsAdapter — stable owner key', () => {
     const chainCaptures: Chain[] = []
     const signerCaptures: `0x${string}`[] = []
     const mockClient = {
-      sendCalls: async () => {
-        signerCaptures.push(STABLE_ADDRESS) // captures that sendCalls was reached
-        return { id: '0x' + '1'.repeat(64) }
+      prepareCalls: async () => {
+        signerCaptures.push(STABLE_ADDRESS) // captures that prepareCalls was reached
+        return { type: 'user-operation-v060', data: {} }
       },
+      signPreparedCalls: async () => ({ type: 'user-operation-v060', data: {}, signature: { type: 'secp256k1', data: '0x' + 'f'.repeat(130) } }),
+      sendPreparedCalls: async () => ({ id: '0x' + '1'.repeat(64) }),
       waitForCallsStatus: async () => ({
         status: 'success' as const,
         receipts: [{ blockNumber: 100n, transactionHash: '0x' + '2'.repeat(64) }],
@@ -183,7 +186,9 @@ describe('alchemyWalletSendCallsAdapter — stable owner key', () => {
   it('sendSponsored calls genKey() per call when ownerPrivateKey is unset', async () => {
     let genKeyCalls = 0
     const mockClient = {
-      sendCalls: async () => ({ id: '0x' + '1'.repeat(64) }),
+      prepareCalls: async () => ({ type: 'user-operation-v060', data: {} }),
+      signPreparedCalls: async () => ({ type: 'user-operation-v060', data: {}, signature: { type: 'secp256k1', data: '0x' + 'f'.repeat(130) } }),
+      sendPreparedCalls: async () => ({ id: '0x' + '1'.repeat(64) }),
       waitForCallsStatus: async () => ({
         status: 'success' as const,
         receipts: [{ blockNumber: 100n, transactionHash: '0x' + '2'.repeat(64) }],
@@ -352,7 +357,9 @@ describe('alchemyWalletSendCallsAdapter — ensureDeployed (self-bootstrap)', ()
 
   it('integration: inlineCanonical is set in sendSponsored so service skips neutral oracle', async () => {
     const mockClient = {
-      sendCalls: async () => ({ id: '0x' + '1'.repeat(64) }),
+      prepareCalls: async () => ({ type: 'user-operation-v060', data: {} }),
+      signPreparedCalls: async () => ({ type: 'user-operation-v060', data: {}, signature: { type: 'secp256k1', data: '0x' + 'f'.repeat(130) } }),
+      sendPreparedCalls: async () => ({ id: '0x' + '1'.repeat(64) }),
       waitForCallsStatus: async () => ({
         status: 'success' as const,
         receipts: [{ blockNumber: 100n, transactionHash: '0x' + '2'.repeat(64) }],
@@ -374,10 +381,12 @@ describe('alchemyWalletSendCallsAdapter — ensureDeployed (self-bootstrap)', ()
   })
 
   it('Covers AE4 (R6): sendSponsored failure propagates (no auto recovery)', async () => {
-    // In stable mode, sendSponsored uses the stable signer. If sendCalls throws,
+    // In stable mode, sendSponsored uses the stable signer. If prepareCalls throws,
     // the error propagates so the service records it as a failure.
     const mockClient = {
-      sendCalls: async () => { throw new Error('wallet_sendCalls rejected') },
+      prepareCalls: async () => { throw new Error('prepareCalls rejected') },
+      signPreparedCalls: async () => ({ type: 'user-operation-v060', data: {}, signature: {} }),
+      sendPreparedCalls: async () => ({ id: '0x' + '1'.repeat(64) }),
       waitForCallsStatus: async () => ({ status: 'success' as const, receipts: [] }),
     }
     const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
@@ -388,7 +397,7 @@ describe('alchemyWalletSendCallsAdapter — ensureDeployed (self-bootstrap)', ()
     })
     const client = await adapter.buildAccountClient(makeConfig('base-mainnet', STABLE_KEY))
 
-    await expect(client.sendSponsored()).rejects.toThrow('wallet_sendCalls rejected')
+    await expect(client.sendSponsored()).rejects.toThrow('prepareCalls rejected')
   })
 
   it('Covers AE3 (R2): same stable key derives same signer address regardless of network', async () => {
@@ -408,5 +417,199 @@ describe('alchemyWalletSendCallsAdapter — ensureDeployed (self-bootstrap)', ()
     }
     // If we got here without errors, AE3 is structurally satisfied.
     expect(true).toBe(true)
+  })
+})
+
+// ── U6: Prepare/send stage refactor ───────────────────────────────────────────
+
+describe('alchemyWalletSendCallsAdapter — prepare/send stage refactor', () => {
+  // Helper: mock client that records call order and returns configurable results.
+  function makePrepareSendMock(opts?: {
+    prepareCallsResult?: unknown
+    signPreparedCallsResult?: unknown
+    sendPreparedCallsResult?: { id: string }
+    waitForCallsStatusResult?: unknown
+    prepareCallsThrows?: string
+    signPreparedCallsThrows?: string
+    sendPreparedCallsThrows?: string
+  }) {
+    const callOrder: string[] = []
+    const mockClient = {
+      prepareCalls: async () => {
+        callOrder.push('prepareCalls')
+        if (opts?.prepareCallsThrows) throw new Error(opts.prepareCallsThrows)
+        return opts?.prepareCallsResult ?? { type: 'user-operation-v060', data: {} }
+      },
+      signPreparedCalls: async () => {
+        callOrder.push('signPreparedCalls')
+        if (opts?.signPreparedCallsThrows) throw new Error(opts.signPreparedCallsThrows)
+        return opts?.signPreparedCallsResult ?? { type: 'user-operation-v060', data: {}, signature: { type: 'secp256k1', data: '0x' + 'f'.repeat(130) } }
+      },
+      sendPreparedCalls: async () => {
+        callOrder.push('sendPreparedCalls')
+        if (opts?.sendPreparedCallsThrows) throw new Error(opts.sendPreparedCallsThrows)
+        return opts?.sendPreparedCallsResult ?? { id: '0x' + '1'.repeat(64) }
+      },
+      waitForCallsStatus: async () => {
+        callOrder.push('waitForCallsStatus')
+        return opts?.waitForCallsStatusResult ?? {
+          status: 'success' as const,
+          receipts: [{ blockNumber: 100n, transactionHash: '0x' + '2'.repeat(64) }],
+        }
+      },
+    }
+    return { mockClient, callOrder }
+  }
+
+  it('happy path: sendSponsored calls prepareCalls → signPreparedCalls → sendPreparedCalls in order', async () => {
+    const { mockClient, callOrder } = makePrepareSendMock()
+    const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
+
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      createClient: mockCreateClient,
+      generateKey: () => ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+    })
+    const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
+    await client.sendSponsored()
+
+    expect(callOrder).toEqual(['prepareCalls', 'signPreparedCalls', 'sendPreparedCalls', 'waitForCallsStatus'])
+  })
+
+  it('happy path: prepareMs covers prepare+sign, sendMs covers send, submitMs = prepareMs + sendMs', async () => {
+    const { mockClient } = makePrepareSendMock()
+    const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
+
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      createClient: mockCreateClient,
+      generateKey: () => ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+    })
+    const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
+    const result = await client.sendSponsored()
+
+    expect(result.prepareMs).toBeGreaterThanOrEqual(0)
+    expect(result.sendMs).toBeGreaterThanOrEqual(0)
+    expect(result.submitMs).toBeCloseTo(result.prepareMs! + result.sendMs!, 5)
+  })
+
+  it('happy path: all three stage metrics are populated for successful runs', async () => {
+    const { mockClient } = makePrepareSendMock()
+    const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
+
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      createClient: mockCreateClient,
+      generateKey: () => ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+    })
+    const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
+    const result = await client.sendSponsored()
+
+    expect(result.submitMs).toBeGreaterThanOrEqual(0)
+    expect(result.prepareMs).toBeDefined()
+    expect(result.sendMs).toBeDefined()
+    expect(result.prepareMs).toBeGreaterThanOrEqual(0)
+    expect(result.sendMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('error path: prepareCalls fails → run throws, sendPreparedCalls not called', async () => {
+    const { mockClient, callOrder } = makePrepareSendMock({ prepareCallsThrows: 'prepareCalls failed' })
+    const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
+
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      createClient: mockCreateClient,
+      generateKey: () => ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+    })
+    const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
+
+    await expect(client.sendSponsored()).rejects.toThrow('prepareCalls failed')
+    expect(callOrder).not.toContain('sendPreparedCalls')
+    expect(callOrder).not.toContain('waitForCallsStatus')
+  })
+
+  it('error path: sendPreparedCalls fails → run throws, no partial prepare/send stage serialized', async () => {
+    const { mockClient, callOrder } = makePrepareSendMock({ sendPreparedCallsThrows: 'sendPreparedCalls failed' })
+    const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
+
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      createClient: mockCreateClient,
+      generateKey: () => ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+    })
+    const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
+
+    // The error propagates — the service will record it as a submit-failed.
+    // No SponsoredResult is returned, so no prepare/send stages are serialized.
+    await expect(client.sendSponsored()).rejects.toThrow('sendPreparedCalls failed')
+    expect(callOrder).toContain('prepareCalls')
+    expect(callOrder).toContain('signPreparedCalls')
+    expect(callOrder).not.toContain('waitForCallsStatus')
+  })
+
+  it('integration: inlineCanonical is still set so service skips neutral oracle', async () => {
+    const { mockClient } = makePrepareSendMock()
+    const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
+
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      createClient: mockCreateClient,
+      generateKey: () => ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+    })
+    const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
+    const result = await client.sendSponsored()
+
+    expect(result.inlineCanonical).toBeDefined()
+    expect(result.inlineCanonical!.status).toBe('ok')
+    expect(result.inlineCanonical!.blockNumber).toBe(100n)
+  })
+
+  it('edge case: sendPreparedCalls succeeds but waitForCallsStatus returns failure → integrity-fail', async () => {
+    const { mockClient } = makePrepareSendMock({
+      waitForCallsStatusResult: {
+        status: 'failure' as const,
+        receipts: [{ blockNumber: 99n, transactionHash: '0x' + '3'.repeat(64) }],
+      },
+    })
+    const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
+
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      createClient: mockCreateClient,
+      generateKey: () => ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+    })
+    const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
+    const result = await client.sendSponsored()
+
+    expect(result.inlineCanonical).toBeDefined()
+    expect(result.inlineCanonical!.status).toBe('integrity-fail')
+  })
+
+  it('integration: acceptedAtMs is set to the post-sendPreparedCalls timestamp', async () => {
+    const { mockClient } = makePrepareSendMock()
+    const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
+
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      createClient: mockCreateClient,
+      generateKey: () => ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+    })
+    const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
+    const result = await client.sendSponsored()
+
+    // acceptedAtMs should be a valid performance.now() timestamp (>= 0).
+    expect(result.acceptedAtMs).toBeGreaterThanOrEqual(0)
+    // acceptedAtMs should be after the prepare stage (prepareMs + sendStart).
+    // Since sendMs >= 0, acceptedAtMs should be >= prepareMs relative to tStart.
+    expect(result.acceptedAtMs).toBeGreaterThanOrEqual(result.prepareMs!)
+  })
+
+  it('stable mode: prepare/send flow uses the stable signer address', async () => {
+    const { mockClient } = makePrepareSendMock()
+    const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
+
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      createClient: mockCreateClient,
+      generateKey: () => { throw new Error('genKey should not be called in stable mode') },
+    })
+    const client = await adapter.buildAccountClient(makeConfig('base-mainnet', STABLE_KEY))
+    const result = await client.sendSponsored()
+
+    expect(result.accountAddress).toBe(STABLE_ADDRESS)
+    expect(result.prepareMs).toBeDefined()
+    expect(result.sendMs).toBeDefined()
+    expect(result.submitMs).toBeCloseTo(result.prepareMs! + result.sendMs!, 5)
   })
 })

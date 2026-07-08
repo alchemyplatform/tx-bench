@@ -112,11 +112,9 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     }
   }
 
-  // ── Timed send ─────────────────────────────────────────────────────────────
+  // ── Timed send (prepare → sign → send decomposition) ───────────────────────
 
   async sendSponsored(): Promise<SponsoredResult> {
-    const tStart = performance.now()
-
     // Use the stable owner when configured; fall back to per-call random key.
     const signer = this.stableOwner ?? privateKeyToAccount(this.genKey())
 
@@ -131,12 +129,45 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
 
     // Calling to: signer.address (the EIP-7702 smart wallet itself) with empty
     // data invokes the wallet's fallback and fails validation. Use a non-self target.
-    const { id: callId } = await client.sendCalls({
-      calls: [{ to: '0x000000000000000000000000000000000000dEaD', data: '0x', value: 0n }],
-    })
-    const tAccepted = performance.now()
+    const calls = [{ to: '0x000000000000000000000000000000000000dEaD' as const, data: '0x' as const, value: 0n }]
 
-    // waitForCallsStatus polls until the tx is mined — canonical timing resolves here
+    // ── Stage 1: prepare + sign ──────────────────────────────────────────────
+    const tPrepareStart = performance.now()
+
+    // prepareCalls builds the user operation and returns a signature request.
+    // The client is already constructed with paymaster caps, but per-call caps
+    // are included for explicitness — some SDK versions may require them.
+    const prepared = await client.prepareCalls({
+      calls,
+      capabilities: { paymaster: { policyId: this.policyId } },
+    })
+
+    // signPreparedCalls accepts the whole prepareCalls result and returns signed calls.
+    const signed = await client.signPreparedCalls(prepared)
+
+    const tPrepareEnd = performance.now()
+    const prepareMs = tPrepareEnd - tPrepareStart
+
+    // ── Stage 2: send ─────────────────────────────────────────────────────────
+    const tSendStart = performance.now()
+
+    // NOTE: sendPreparedCalls call-pattern ambiguity — the SDK type defs show
+    // SendPreparedCallsParams as the signed-call object itself (direct pass:
+    // sendPreparedCalls(signed)), while the JSDoc example shows a wrapped form
+    // ({ signedCalls }). The direct pass matches the type definition and is used
+    // here. This must be verified at runtime against the real SDK — if the
+    // wrapped form is required, change to sendPreparedCalls({ ...signed }).
+    const { id: callId } = await client.sendPreparedCalls(signed)
+
+    const tSendEnd = performance.now()
+    const sendMs = tSendEnd - tSendStart
+    const acceptedAtMs = tSendEnd
+
+    // Compatibility total: submitMs = prepareMs + sendMs so downstream consumers
+    // that hardcode `submit` keep working (U2 compatibility-total design).
+    const submitMs = prepareMs + sendMs
+
+    // ── Canonical: waitForCallsStatus polls until the tx is mined ─────────────
     const status = await client.waitForCallsStatus({
       id: callId,
       timeout: this.canonicalTimeoutMs,
@@ -165,8 +196,10 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     return {
       userOpHash: callId as `0x${string}`,
       protocolClass: 'wallet-sendcalls',
-      submitMs: tAccepted - tStart,
-      acceptedAtMs: tAccepted,
+      submitMs,
+      prepareMs,
+      sendMs,
+      acceptedAtMs,
       accountAddress: signer.address,
       inlineCanonical,
     }
