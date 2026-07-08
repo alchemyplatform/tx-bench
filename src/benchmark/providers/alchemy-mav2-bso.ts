@@ -1,17 +1,19 @@
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { createPublicClient } from 'viem'
 import { createBundlerClient } from 'viem/account-abstraction'
-import { base } from 'viem/chains'
+import type { Chain } from 'viem'
 import { alchemyTransport } from '@alchemy/common'
 import { estimateFeesPerGas } from '@alchemy/aa-infra'
 import { toModularAccountV2 } from '@alchemy/smart-accounts'
 import type { Config } from '../config.js'
 import type { AccountClient, ProviderAdapter, SponsoredResult } from './types.js'
+import { resolveChain } from '../chains.js'
 
 // ── Dependency types (injectable for testing) ─────────────────────────────────
 
 type ToMAv2 = typeof toModularAccountV2
 type KeyGen = typeof generatePrivateKey
+type ChainResolver = (network: string) => Chain
 
 // ── AccountClient impl ────────────────────────────────────────────────────────
 
@@ -19,8 +21,10 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
   constructor(
     private readonly apiKey: string,
     private readonly bsoPolicyId: string,
+    private readonly network: string,
     private readonly toAccount: ToMAv2,
-    private readonly genKey: KeyGen
+    private readonly genKey: KeyGen,
+    private readonly chainResolver: ChainResolver = resolveChain,
   ) {}
 
   async sendSponsored(): Promise<SponsoredResult> {
@@ -29,9 +33,11 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
     const key = this.genKey()
     const owner = privateKeyToAccount(key)
 
+    const chain = this.chainResolver(this.network)
+
     // Read transport (no BSO header — just API key auth for eth_call / getCode)
     const readTransport = alchemyTransport({ apiKey: this.apiKey })
-    const publicClient = createPublicClient({ chain: base, transport: readTransport })
+    const publicClient = createPublicClient({ chain, transport: readTransport })
 
     const account = await this.toAccount({ client: publicClient, owner })
 
@@ -43,7 +49,7 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
 
     const bundlerClient = createBundlerClient({
       account,
-      chain: base,
+      chain,
       transport: bundlerTransport,
       userOperation: { estimateFeesPerGas },
     })
@@ -72,9 +78,11 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
 export function createAlchemyMAv2BSOAdapter(deps?: {
   toAccount?: ToMAv2
   generateKey?: KeyGen
+  chainResolver?: ChainResolver
 }): ProviderAdapter {
   const toAccount = deps?.toAccount ?? toModularAccountV2
   const genKey = deps?.generateKey ?? generatePrivateKey
+  const chainResolver = deps?.chainResolver ?? resolveChain
 
   return {
     id: 'alchemy-mav2-bso',
@@ -89,7 +97,7 @@ export function createAlchemyMAv2BSOAdapter(deps?: {
       if (!cfg.bsoPolicyId) {
         throw new Error('BSO policy not configured — set ALCHEMY_BSO_POLICY_ID')
       }
-      return new AlchemyMAv2BSOAccountClient(cfg.apiKey, cfg.bsoPolicyId, toAccount, genKey)
+      return new AlchemyMAv2BSOAccountClient(cfg.apiKey, cfg.bsoPolicyId, config.network, toAccount, genKey, chainResolver)
     },
   }
 }

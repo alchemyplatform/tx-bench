@@ -1,14 +1,16 @@
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import { base } from 'viem/chains'
+import type { Chain } from 'viem'
 import { createSmartWalletClient, alchemyWalletTransport } from '@alchemy/wallet-apis'
 import type { Config } from '../config.js'
 import type { AccountClient, ProviderAdapter, SponsoredResult } from './types.js'
 import type { CanonicalResult } from '../oracle/canonical.js'
+import { resolveChain } from '../chains.js'
 
 // ── Dependency types (injectable for testing) ─────────────────────────────────
 
 type ClientFactory = typeof createSmartWalletClient
 type KeyGen = typeof generatePrivateKey
+type ChainResolver = (network: string) => Chain
 
 // ── AccountClient impl ────────────────────────────────────────────────────────
 
@@ -17,8 +19,10 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     private readonly apiKey: string,
     private readonly policyId: string,
     private readonly canonicalTimeoutMs: number,
+    private readonly network: string,
     private readonly createClient: ClientFactory,
-    private readonly genKey: KeyGen
+    private readonly genKey: KeyGen,
+    private readonly chainResolver: ChainResolver = resolveChain,
   ) {}
 
   async sendSponsored(): Promise<SponsoredResult> {
@@ -27,10 +31,12 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     const key = this.genKey()
     const signer = privateKeyToAccount(key)
 
+    const chain = this.chainResolver(this.network)
+
     const client = this.createClient({
       signer,
       transport: alchemyWalletTransport({ apiKey: this.apiKey }),
-      chain: base,
+      chain,
       paymaster: { policyId: this.policyId },
     })
 
@@ -83,9 +89,11 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
 export function createAlchemyWalletSendCallsAdapter(deps?: {
   createClient?: ClientFactory
   generateKey?: KeyGen
+  chainResolver?: ChainResolver
 }): ProviderAdapter {
   const createClient = deps?.createClient ?? createSmartWalletClient
   const genKey = deps?.generateKey ?? generatePrivateKey
+  const chainResolver = deps?.chainResolver ?? resolveChain
 
   return {
     id: 'alchemy-wallet-sendcalls',
@@ -101,8 +109,10 @@ export function createAlchemyWalletSendCallsAdapter(deps?: {
         cfg.apiKey,
         cfg.policyId,
         config.timeouts.canonicalMs,
+        config.network,
         createClient,
         genKey,
+        chainResolver,
       )
     },
   }
