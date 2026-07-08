@@ -50,6 +50,22 @@ export async function runBenchmarkGrid(
     })
   )
 
+  // Bootstrap phase: call ensureDeployed() on each client that exposes it.
+  // This is excluded from all metrics (runs before the timed loop). A bootstrap
+  // failure is treated the same as a build failure — all timed iterations for
+  // that provider are recorded as failures, other providers are unaffected.
+  await Promise.allSettled(
+    providers.map(async ({ row }) => {
+      const client = clientMap.get(row.id)
+      if (!client || typeof client.ensureDeployed !== 'function') return
+      try {
+        await client.ensureDeployed()
+      } catch (e) {
+        buildErrors.set(row.id, serializeError(e).message)
+      }
+    })
+  )
+
   // Accumulate records per provider across N iterations
   const recordMap = new Map<string, RunRecord[]>(
     providers.map(({ row }) => [row.id, []])

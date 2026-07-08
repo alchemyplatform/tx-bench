@@ -4,6 +4,7 @@ import type { Config } from './config'
 import type { CanonicalOracle } from './oracle/canonical'
 import type { FlashblockOracle } from './oracle/flashblocks'
 import type { ProviderAdapter } from './providers/types'
+import type { AccountClient } from './providers/types'
 import type { ProviderRow } from './contracts'
 
 // ── Fixtures & mocks ──────────────────────────────────────────────────────────
@@ -27,14 +28,19 @@ function makeRow(id: string, protocolClass: '4337-bundler' | 'intent-relay' = '4
 }
 
 let addrCounter = 0
-function makeAdapter(id: string, opts?: { failEvery?: boolean; failBuildClient?: boolean }): ProviderAdapter {
+function makeAdapter(id: string, opts?: {
+  failEvery?: boolean
+  failBuildClient?: boolean
+  ensureDeployed?: () => Promise<void>
+  failEnsureDeployed?: boolean
+}): ProviderAdapter {
   return {
     id,
     protocolClass: '4337-bundler',
     accountTypeLabel: 'Test Account',
     async buildAccountClient(_config) {
       if (opts?.failBuildClient) throw new Error(`${id} build failed`)
-      return {
+      const client: AccountClient = {
         async sendSponsored() {
           if (opts?.failEvery) throw new Error(`${id} send failed`)
           addrCounter++
@@ -47,6 +53,12 @@ function makeAdapter(id: string, opts?: { failEvery?: boolean; failBuildClient?:
           }
         },
       }
+      if (opts?.ensureDeployed) {
+        client.ensureDeployed = opts.ensureDeployed
+      } else if (opts?.failEnsureDeployed) {
+        client.ensureDeployed = async () => { throw new Error(`${id} bootstrap failed`) }
+      }
+      return client
     },
   }
 }
@@ -168,5 +180,97 @@ describe('runBenchmarkGrid — progress events', () => {
     expect(events).toContain('iteration-start')
     expect(events).toContain('iteration-done')
     expect(events).toContain('provider-done')
+  })
+})
+
+describe('runBenchmarkGrid — ensureDeployed bootstrap', () => {
+  it('calls ensureDeployed exactly once before the timed loop', async () => {
+    addrCounter = 0
+    let deployCallCount = 0
+    let sendSponsoredCallOrder: number[] = []
+    let deployCallOrder = 0
+    const providers: ProviderEntry[] = [
+      {
+        row: makeRow('alchemy-mav2-bso'),
+        adapter: makeAdapter('alchemy-mav2-bso', {
+          ensureDeployed: async () => {
+            deployCallCount++
+            deployCallOrder = addrCounter // capture addrCounter before any sendSponsored
+          },
+        }),
+      },
+    ]
+
+    const results = await runBenchmarkGrid(CONFIG, providers, makeMockCanonical(), MOCK_FLASHBLOCK)
+
+    expect(deployCallCount).toBe(1)
+    expect(results[0].records).toHaveLength(3)
+    // ensureDeployed was called before any sendSponsored (addrCounter was 0 at deploy time)
+    expect(deployCallOrder).toBe(0)
+    expect(results[0].metrics.runCount).toBe(3)
+  })
+
+  it('skips ensureDeployed when the client does not expose it', async () => {
+    addrCounter = 0
+    const providers: ProviderEntry[] = [
+      { row: makeRow('alchemy-light-account'), adapter: makeAdapter('alchemy-light-account') },
+    ]
+
+    const results = await runBenchmarkGrid(CONFIG, providers, makeMockCanonical(), MOCK_FLASHBLOCK)
+
+    // Runs normally — no ensureDeployed on the client, so it was skipped
+    expect(results[0].records).toHaveLength(3)
+    expect(results[0].metrics.failureCount).toBe(0)
+    expect(results[0].metrics.runCount).toBe(3)
+  })
+
+  it('ensureDeployed failure records all iterations as failures with the bootstrap error message', async () => {
+    addrCounter = 0
+    const providers: ProviderEntry[] = [
+      { row: makeRow('alchemy-mav2-bso'), adapter: makeAdapter('alchemy-mav2-bso', { failEnsureDeployed: true }) },
+      { row: makeRow('alchemy-light-account'), adapter: makeAdapter('alchemy-light-account') },
+    ]
+
+    const results = await runBenchmarkGrid(CONFIG, providers, makeMockCanonical(), MOCK_FLASHBLOCK)
+
+    const bsoResult = results.find(r => r.row.id === 'alchemy-mav2-bso')!
+    const otherResult = results.find(r => r.row.id === 'alchemy-light-account')!
+
+    // BSO: all iterations failed with the bootstrap error message
+    expect(bsoResult.metrics.failureCount).toBe(3)
+    expect(bsoResult.metrics.runCount).toBe(3)
+    expect(bsoResult.records[0].stages.submit.status).toBe('failed')
+    expect(bsoResult.records[0].error).toContain('bootstrap failed')
+    expect(bsoResult.records[1].error).toContain('bootstrap failed')
+    expect(bsoResult.records[2].error).toContain('bootstrap failed')
+
+    // Other provider: unaffected
+    expect(otherResult.metrics.failureCount).toBe(0)
+    expect(otherResult.metrics.runCount).toBe(3)
+  })
+
+  it('bootstrap is not counted in any stage metric or runCount', async () => {
+    addrCounter = 0
+    const providers: ProviderEntry[] = [
+      {
+        row: makeRow('alchemy-mav2-bso'),
+        adapter: makeAdapter('alchemy-mav2-bso', {
+          ensureDeployed: async () => {
+            // Simulate some time passing during bootstrap
+            await new Promise(r => setTimeout(r, 10))
+          },
+        }),
+      },
+    ]
+
+    const results = await runBenchmarkGrid(CONFIG, providers, makeMockCanonical(), MOCK_FLASHBLOCK)
+
+    const metrics = results[0].metrics
+    // runCount should be the configured value, not include bootstrap
+    expect(metrics.runCount).toBe(CONFIG.runCount)
+    expect(metrics.failureCount).toBe(0)
+    // All submit times should be the mock value (300ms), not inflated by bootstrap
+    expect(metrics.stages.submit?.median).toBe(300)
+    expect(metrics.stages.submit?.count).toBe(3)
   })
 })

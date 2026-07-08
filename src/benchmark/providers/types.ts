@@ -17,6 +17,10 @@ export type SponsoredResult = {
 
 export interface AccountClient {
   sendSponsored(): Promise<SponsoredResult>
+  // Optional: called once after buildAccountClient and before the timed loop to
+  // ensure the account is deployed on-chain (e.g. stable-owner self-bootstrap).
+  // When absent, the service skips it. Excluded from all metrics.
+  ensureDeployed?(): Promise<void>
 }
 
 export interface ProviderAdapter {
