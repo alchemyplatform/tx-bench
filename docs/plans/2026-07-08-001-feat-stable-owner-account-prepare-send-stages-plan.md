@@ -1,7 +1,7 @@
 ---
 title: feat: Stable owner account with self-bootstrap and Wallet SendCalls prepare/send stages
 type: feat
-status: active
+status: completed
 date: 2026-07-08
 origin: docs/brainstorms/2026-07-08-stable-owner-account-requirements.md
 deepened: 2026-07-08
