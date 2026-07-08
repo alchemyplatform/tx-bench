@@ -1,6 +1,6 @@
 import { buildRunRecord } from './metrics.js'
 import { aggregateRuns } from './aggregate.js'
-import { serializeError } from './serialize.js'
+import { serializeError, serializeErrorRedacted } from './serialize.js'
 import type { Config } from './config.js'
 import type { ProtocolClass, ProviderMetrics, ProviderRow, RunRecord } from './contracts.js'
 import type { ProviderAdapter } from './providers/types.js'
@@ -45,7 +45,7 @@ export async function runBenchmarkGrid(
         const client = await adapter.buildAccountClient(config)
         clientMap.set(row.id, client as never)
       } catch (e) {
-        buildErrors.set(row.id, serializeError(e).message)
+        buildErrors.set(row.id, serializeErrorRedacted(e, config.ownerPrivateKey).message)
       }
     })
   )
@@ -61,7 +61,7 @@ export async function runBenchmarkGrid(
       try {
         await client.ensureDeployed()
       } catch (e) {
-        buildErrors.set(row.id, serializeError(e).message)
+        buildErrors.set(row.id, serializeErrorRedacted(e, config.ownerPrivateKey).message)
       }
     })
   )
@@ -128,7 +128,7 @@ export async function runBenchmarkGrid(
             protocolClass: row.protocolClass as ProtocolClass,
             accountTypeLabel: row.accountTypeLabel,
             runIndex: i,
-            error: serializeError(e).message,
+            error: serializeErrorRedacted(e, config.ownerPrivateKey).message,
           }))
           onProgress?.({ kind: 'provider-done', provider: row.id, iteration: i, status: 'failed' })
         }

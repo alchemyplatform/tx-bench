@@ -274,3 +274,167 @@ describe('runBenchmarkGrid — ensureDeployed bootstrap', () => {
     expect(metrics.stages.submit?.count).toBe(3)
   })
 })
+
+// ── Private-key redaction in error paths (U7, R10) ────────────────────────────
+
+const TEST_OWNER_KEY = ('0x' + 'ab'.repeat(32)) as `0x${string}`
+const TEST_BARE_KEY = TEST_OWNER_KEY.slice(2)
+
+const CONFIG_WITH_KEY: Config = {
+  ...CONFIG,
+  ownerPrivateKey: TEST_OWNER_KEY,
+}
+
+describe('runBenchmarkGrid — private-key redaction in errors', () => {
+  it('redacts owner private key from bootstrap (ensureDeployed) failure errors', async () => {
+    const providers: ProviderEntry[] = [
+      {
+        row: makeRow('alchemy-mav2-bso'),
+        adapter: makeAdapter('alchemy-mav2-bso', {
+          failEnsureDeployed: true,
+        }),
+      },
+    ]
+    // Override the ensureDeployed to throw an error containing the key
+    const customAdapter: ProviderAdapter = {
+      id: 'alchemy-mav2-bso',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          async sendSponsored() {
+            return {
+              userOpHash: '0x' as `0x${string}`,
+              protocolClass: '4337-bundler' as const,
+              submitMs: 100,
+              accountAddress: '0x' as `0x${string}`,
+            }
+          },
+          async ensureDeployed() {
+            throw new Error(`Bootstrap failed: key ${TEST_OWNER_KEY} rejected`)
+          },
+        }
+      },
+    }
+
+    const results = await runBenchmarkGrid(
+      { ...CONFIG_WITH_KEY, runCount: 2 },
+      [{ row: makeRow('alchemy-mav2-bso'), adapter: customAdapter }],
+      makeMockCanonical(),
+      MOCK_FLASHBLOCK,
+    )
+
+    for (const record of results[0].records) {
+      expect(record.error).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+      expect(record.error).not.toContain(TEST_OWNER_KEY)
+      expect(record.error).not.toContain(TEST_BARE_KEY)
+      // The redacted form should appear where the key was
+      expect(record.stages.submit.reason).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+    }
+  })
+
+  it('redacts owner private key from timed sendSponsored failure errors', async () => {
+    const failAdapter: ProviderAdapter = {
+      id: 'test-fail',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          async sendSponsored() {
+            throw new Error(`sendCalls rejected: invalid key ${TEST_OWNER_KEY}`)
+          },
+        }
+      },
+    }
+
+    const results = await runBenchmarkGrid(
+      { ...CONFIG_WITH_KEY, runCount: 2 },
+      [{ row: makeRow('test-fail'), adapter: failAdapter }],
+      makeMockCanonical(),
+      MOCK_FLASHBLOCK,
+    )
+
+    for (const record of results[0].records) {
+      expect(record.error).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+      expect(record.error).not.toContain(TEST_OWNER_KEY)
+      expect(record.error).not.toContain(TEST_BARE_KEY)
+    }
+  })
+
+  it('redacts bare (non-0x) key form from error messages', async () => {
+    const failAdapter: ProviderAdapter = {
+      id: 'test-bare',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          async sendSponsored() {
+            throw new Error(`InvalidPrivateKeyError: key=${TEST_BARE_KEY} is not valid`)
+          },
+        }
+      },
+    }
+
+    const results = await runBenchmarkGrid(
+      { ...CONFIG_WITH_KEY, runCount: 1 },
+      [{ row: makeRow('test-bare'), adapter: failAdapter }],
+      makeMockCanonical(),
+      MOCK_FLASHBLOCK,
+    )
+
+    const record = results[0].records[0]
+    expect(record.error).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+    expect(record.error).not.toContain(TEST_BARE_KEY)
+    expect(record.error).not.toContain(TEST_OWNER_KEY)
+  })
+
+  it('does not add redaction placeholder when ownerPrivateKey is unset', async () => {
+    const failAdapter: ProviderAdapter = {
+      id: 'test-no-key',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          async sendSponsored() {
+            throw new Error('bundler rejected: gas limit too low')
+          },
+        }
+      },
+    }
+
+    const results = await runBenchmarkGrid(
+      SINGLE_RUN_CONFIG, // CONFIG without ownerPrivateKey
+      [{ row: makeRow('test-no-key'), adapter: failAdapter }],
+      makeMockCanonical(),
+      MOCK_FLASHBLOCK,
+    )
+
+    const record = results[0].records[0]
+    expect(record.error).toBe('bundler rejected: gas limit too low')
+    expect(record.error).not.toContain('[REDACTED')
+  })
+
+  it('redacts from buildAccountClient failure errors too', async () => {
+    const failBuildAdapter: ProviderAdapter = {
+      id: 'test-build-fail',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        throw new Error(`config error: key ${TEST_OWNER_KEY} not found in env`)
+      },
+    }
+
+    const results = await runBenchmarkGrid(
+      { ...CONFIG_WITH_KEY, runCount: 2 },
+      [{ row: makeRow('test-build-fail'), adapter: failBuildAdapter }],
+      makeMockCanonical(),
+      MOCK_FLASHBLOCK,
+    )
+
+    for (const record of results[0].records) {
+      expect(record.error).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+      expect(record.error).not.toContain(TEST_OWNER_KEY)
+      expect(record.error).not.toContain(TEST_BARE_KEY)
+    }
+  })
+})
