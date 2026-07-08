@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'bun:test'
-import { runBenchmarkGrid, type ProviderEntry } from './service'
+import { runBenchmarkGrid, withTimeout, type ProviderEntry } from './service'
 import type { Config } from './config'
 import type { CanonicalOracle } from './oracle/canonical'
 import type { FlashblockOracle } from './oracle/flashblocks'
 import type { ProviderAdapter } from './providers/types'
+import type { AccountClient } from './providers/types'
 import type { ProviderRow } from './contracts'
 
 // ── Fixtures & mocks ──────────────────────────────────────────────────────────
@@ -27,14 +28,19 @@ function makeRow(id: string, protocolClass: '4337-bundler' | 'intent-relay' = '4
 }
 
 let addrCounter = 0
-function makeAdapter(id: string, opts?: { failEvery?: boolean; failBuildClient?: boolean }): ProviderAdapter {
+function makeAdapter(id: string, opts?: {
+  failEvery?: boolean
+  failBuildClient?: boolean
+  ensureDeployed?: () => Promise<void>
+  failEnsureDeployed?: boolean
+}): ProviderAdapter {
   return {
     id,
     protocolClass: '4337-bundler',
     accountTypeLabel: 'Test Account',
     async buildAccountClient(_config) {
       if (opts?.failBuildClient) throw new Error(`${id} build failed`)
-      return {
+      const client: AccountClient = {
         async sendSponsored() {
           if (opts?.failEvery) throw new Error(`${id} send failed`)
           addrCounter++
@@ -47,6 +53,12 @@ function makeAdapter(id: string, opts?: { failEvery?: boolean; failBuildClient?:
           }
         },
       }
+      if (opts?.ensureDeployed) {
+        client.ensureDeployed = opts.ensureDeployed
+      } else if (opts?.failEnsureDeployed) {
+        client.ensureDeployed = async () => { throw new Error(`${id} bootstrap failed`) }
+      }
+      return client
     },
   }
 }
@@ -168,5 +180,291 @@ describe('runBenchmarkGrid — progress events', () => {
     expect(events).toContain('iteration-start')
     expect(events).toContain('iteration-done')
     expect(events).toContain('provider-done')
+  })
+})
+
+describe('runBenchmarkGrid — ensureDeployed bootstrap', () => {
+  it('calls ensureDeployed exactly once before the timed loop', async () => {
+    addrCounter = 0
+    let deployCallCount = 0
+    let deployCallOrder = 0
+    const providers: ProviderEntry[] = [
+      {
+        row: makeRow('alchemy-mav2-bso'),
+        adapter: makeAdapter('alchemy-mav2-bso', {
+          ensureDeployed: async () => {
+            deployCallCount++
+            deployCallOrder = addrCounter // capture addrCounter before any sendSponsored
+          },
+        }),
+      },
+    ]
+
+    const results = await runBenchmarkGrid(CONFIG, providers, makeMockCanonical(), MOCK_FLASHBLOCK)
+
+    expect(deployCallCount).toBe(1)
+    expect(results[0].records).toHaveLength(3)
+    // ensureDeployed was called before any sendSponsored (addrCounter was 0 at deploy time)
+    expect(deployCallOrder).toBe(0)
+    expect(results[0].metrics.runCount).toBe(3)
+  })
+
+  it('skips ensureDeployed when the client does not expose it', async () => {
+    addrCounter = 0
+    const providers: ProviderEntry[] = [
+      { row: makeRow('alchemy-light-account'), adapter: makeAdapter('alchemy-light-account') },
+    ]
+
+    const results = await runBenchmarkGrid(CONFIG, providers, makeMockCanonical(), MOCK_FLASHBLOCK)
+
+    // Runs normally — no ensureDeployed on the client, so it was skipped
+    expect(results[0].records).toHaveLength(3)
+    expect(results[0].metrics.failureCount).toBe(0)
+    expect(results[0].metrics.runCount).toBe(3)
+  })
+
+  it('ensureDeployed failure records all iterations as failures with the bootstrap error message', async () => {
+    addrCounter = 0
+    const providers: ProviderEntry[] = [
+      { row: makeRow('alchemy-mav2-bso'), adapter: makeAdapter('alchemy-mav2-bso', { failEnsureDeployed: true }) },
+      { row: makeRow('alchemy-light-account'), adapter: makeAdapter('alchemy-light-account') },
+    ]
+
+    const results = await runBenchmarkGrid(CONFIG, providers, makeMockCanonical(), MOCK_FLASHBLOCK)
+
+    const bsoResult = results.find(r => r.row.id === 'alchemy-mav2-bso')!
+    const otherResult = results.find(r => r.row.id === 'alchemy-light-account')!
+
+    // BSO: all iterations failed with the bootstrap error message
+    expect(bsoResult.metrics.failureCount).toBe(3)
+    expect(bsoResult.metrics.runCount).toBe(3)
+    expect(bsoResult.records[0].stages.submit.status).toBe('failed')
+    expect(bsoResult.records[0].error).toContain('bootstrap failed')
+    expect(bsoResult.records[1].error).toContain('bootstrap failed')
+    expect(bsoResult.records[2].error).toContain('bootstrap failed')
+
+    // Other provider: unaffected
+    expect(otherResult.metrics.failureCount).toBe(0)
+    expect(otherResult.metrics.runCount).toBe(3)
+  })
+
+  it('bootstrap is not counted in any stage metric or runCount', async () => {
+    addrCounter = 0
+    const providers: ProviderEntry[] = [
+      {
+        row: makeRow('alchemy-mav2-bso'),
+        adapter: makeAdapter('alchemy-mav2-bso', {
+          ensureDeployed: async () => {
+            // Simulate some time passing during bootstrap
+            await new Promise(r => setTimeout(r, 10))
+          },
+        }),
+      },
+    ]
+
+    const results = await runBenchmarkGrid(CONFIG, providers, makeMockCanonical(), MOCK_FLASHBLOCK)
+
+    const metrics = results[0].metrics
+    // runCount should be the configured value, not include bootstrap
+    expect(metrics.runCount).toBe(CONFIG.runCount)
+    expect(metrics.failureCount).toBe(0)
+    // All submit times should be the mock value (300ms), not inflated by bootstrap
+    expect(metrics.stages.submit?.median).toBe(300)
+    expect(metrics.stages.submit?.count).toBe(3)
+  })
+})
+
+// ── Private-key redaction in error paths (U7, R10) ────────────────────────────
+
+const TEST_OWNER_KEY = ('0x' + 'ab'.repeat(32)) as `0x${string}`
+const TEST_BARE_KEY = TEST_OWNER_KEY.slice(2)
+
+const CONFIG_WITH_KEY: Config = {
+  ...CONFIG,
+  ownerPrivateKey: TEST_OWNER_KEY,
+}
+
+describe('runBenchmarkGrid — private-key redaction in errors', () => {
+  it('redacts owner private key from bootstrap (ensureDeployed) failure errors', async () => {
+    const providers: ProviderEntry[] = [
+      {
+        row: makeRow('alchemy-mav2-bso'),
+        adapter: makeAdapter('alchemy-mav2-bso', {
+          failEnsureDeployed: true,
+        }),
+      },
+    ]
+    // Override the ensureDeployed to throw an error containing the key
+    const customAdapter: ProviderAdapter = {
+      id: 'alchemy-mav2-bso',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          async sendSponsored() {
+            return {
+              userOpHash: '0x' as `0x${string}`,
+              protocolClass: '4337-bundler' as const,
+              submitMs: 100,
+              accountAddress: '0x' as `0x${string}`,
+            }
+          },
+          async ensureDeployed() {
+            throw new Error(`Bootstrap failed: key ${TEST_OWNER_KEY} rejected`)
+          },
+        }
+      },
+    }
+
+    const results = await runBenchmarkGrid(
+      { ...CONFIG_WITH_KEY, runCount: 2 },
+      [{ row: makeRow('alchemy-mav2-bso'), adapter: customAdapter }],
+      makeMockCanonical(),
+      MOCK_FLASHBLOCK,
+    )
+
+    for (const record of results[0].records) {
+      expect(record.error).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+      expect(record.error).not.toContain(TEST_OWNER_KEY)
+      expect(record.error).not.toContain(TEST_BARE_KEY)
+      // The redacted form should appear where the key was
+      expect(record.stages.submit.reason).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+    }
+  })
+
+  it('redacts owner private key from timed sendSponsored failure errors', async () => {
+    const failAdapter: ProviderAdapter = {
+      id: 'test-fail',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          async sendSponsored() {
+            throw new Error(`sendCalls rejected: invalid key ${TEST_OWNER_KEY}`)
+          },
+        }
+      },
+    }
+
+    const results = await runBenchmarkGrid(
+      { ...CONFIG_WITH_KEY, runCount: 2 },
+      [{ row: makeRow('test-fail'), adapter: failAdapter }],
+      makeMockCanonical(),
+      MOCK_FLASHBLOCK,
+    )
+
+    for (const record of results[0].records) {
+      expect(record.error).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+      expect(record.error).not.toContain(TEST_OWNER_KEY)
+      expect(record.error).not.toContain(TEST_BARE_KEY)
+    }
+  })
+
+  it('redacts bare (non-0x) key form from error messages', async () => {
+    const failAdapter: ProviderAdapter = {
+      id: 'test-bare',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          async sendSponsored() {
+            throw new Error(`InvalidPrivateKeyError: key=${TEST_BARE_KEY} is not valid`)
+          },
+        }
+      },
+    }
+
+    const results = await runBenchmarkGrid(
+      { ...CONFIG_WITH_KEY, runCount: 1 },
+      [{ row: makeRow('test-bare'), adapter: failAdapter }],
+      makeMockCanonical(),
+      MOCK_FLASHBLOCK,
+    )
+
+    const record = results[0].records[0]
+    expect(record.error).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+    expect(record.error).not.toContain(TEST_BARE_KEY)
+    expect(record.error).not.toContain(TEST_OWNER_KEY)
+  })
+
+  it('does not add redaction placeholder when ownerPrivateKey is unset', async () => {
+    const failAdapter: ProviderAdapter = {
+      id: 'test-no-key',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          async sendSponsored() {
+            throw new Error('bundler rejected: gas limit too low')
+          },
+        }
+      },
+    }
+
+    const results = await runBenchmarkGrid(
+      SINGLE_RUN_CONFIG, // CONFIG without ownerPrivateKey
+      [{ row: makeRow('test-no-key'), adapter: failAdapter }],
+      makeMockCanonical(),
+      MOCK_FLASHBLOCK,
+    )
+
+    const record = results[0].records[0]
+    expect(record.error).toBe('bundler rejected: gas limit too low')
+    expect(record.error).not.toContain('[REDACTED')
+  })
+
+  it('redacts from buildAccountClient failure errors too', async () => {
+    const failBuildAdapter: ProviderAdapter = {
+      id: 'test-build-fail',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        throw new Error(`config error: key ${TEST_OWNER_KEY} not found in env`)
+      },
+    }
+
+    const results = await runBenchmarkGrid(
+      { ...CONFIG_WITH_KEY, runCount: 2 },
+      [{ row: makeRow('test-build-fail'), adapter: failBuildAdapter }],
+      makeMockCanonical(),
+      MOCK_FLASHBLOCK,
+    )
+
+    for (const record of results[0].records) {
+      expect(record.error).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+      expect(record.error).not.toContain(TEST_OWNER_KEY)
+      expect(record.error).not.toContain(TEST_BARE_KEY)
+    }
+  })
+})
+
+// ── withTimeout ───────────────────────────────────────────────────────────────
+
+describe('withTimeout', () => {
+  it('resolves with the value when the factory completes before the timeout', async () => {
+    const result = await withTimeout(() => Promise.resolve('ok'), 1000, 'timed out')
+    expect(result).toBe('ok')
+  })
+
+  it('rejects with the timeout message when the factory never resolves', async () => {
+    const never = new Promise<string>(() => {}) // never resolves
+    await expect(withTimeout(() => never, 50, 'bootstrap timeout for test')).rejects.toThrow(
+      'bootstrap timeout for test',
+    )
+  })
+
+  it('aborts the signal when the timeout fires so background polling can wind down', async () => {
+    let observedAbort = false
+    const slow = (signal: AbortSignal) =>
+      new Promise<string>((_, reject) => {
+        signal.addEventListener('abort', () => {
+          observedAbort = true
+          reject(new Error('aborted'))
+        })
+      })
+    // The timeout fires and aborts the signal; the factory may surface either the
+    // timeout message or its own abort rejection — either way the signal aborted.
+    await expect(withTimeout(slow, 50, 'timed out')).rejects.toThrow()
+    expect(observedAbort).toBe(true)
   })
 })

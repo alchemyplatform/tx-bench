@@ -53,12 +53,40 @@ describe('isNeutralOverlap', () => {
 // ── runPreflight — neutrality guard ──────────────────────────────────────────
 
 describe('runPreflight — neutrality guard', () => {
-  it('returns error when neutral node URL overlaps a provider', async () => {
+  it('warns (not errors) when neutral overlaps Alchemy and all runnable providers are Alchemy', async () => {
     const config: Config = {
       ...BASE_CONFIG,
       neutral: { rpcUrl: 'https://base-mainnet.g.alchemy.com/v2/key', flashblockWsUrl: null },
     }
     const result = await runPreflight(config, [ALCHEMY_ROW], {
+      probeChainId: sameChainId,
+      probeFlashblock: async () => false,
+    })
+
+    // No non-Alchemy contestant is disadvantaged → overlap is a warning, not an error.
+    expect(result.ok).toBe(true)
+    expect(result.warnings.some(w => w.includes('all runnable providers are Alchemy'))).toBe(true)
+  })
+
+  it('returns error when neutral overlaps a provider and a non-Alchemy provider is runnable', async () => {
+    const PIMLICO_ROW: ProviderRow = {
+      id: 'pimlico-safe',
+      label: 'Pimlico (Safe)',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Safe',
+      requiredEnv: ['PIMLICO_API_KEY', 'PIMLICO_POLICY_ID'],
+      runnable: true,
+      missingEnv: [],
+    }
+    const config: Config = {
+      ...BASE_CONFIG,
+      providers: {
+        ...BASE_CONFIG.providers,
+        pimlico: { apiKey: 'pkey', policyId: 'ppolicy', rpcUrl: 'https://api.pimlico.io/v2/8453/rpc?apikey=pkey' },
+      },
+      neutral: { rpcUrl: 'https://base-mainnet.g.alchemy.com/v2/key', flashblockWsUrl: null },
+    }
+    const result = await runPreflight(config, [ALCHEMY_ROW, PIMLICO_ROW], {
       probeChainId: sameChainId,
       probeFlashblock: async () => false,
     })

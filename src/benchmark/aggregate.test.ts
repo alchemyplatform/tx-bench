@@ -73,6 +73,27 @@ function makeRecord(submitMs: number, canonicalMs: number, error?: string): RunR
   }
 }
 
+function makeWalletRecord(submitMs: number, prepareMs: number, sendMs: number, canonicalMs: number, error?: string): RunRecord {
+  return {
+    provider: 'alchemy-wallet-sendcalls',
+    runIndex: 0,
+    protocolClass: 'wallet-sendcalls',
+    accountTypeLabel: 'Smart Wallet (EIP-7702)',
+    accountAddress: '0x0000000000000000000000000000000000000002',
+    userOpHash: ('0x' + 'bb'.repeat(32)) as `0x${string}`,
+    stages: {
+      submit: error ? { status: 'failed', reason: error } : { status: 'ok', ms: submitMs },
+      preconf: { status: 'not-observed' },
+      canonical: error ? { status: 'not-observed' } : { status: 'ok', ms: canonicalMs },
+      providerReceipt: { status: 'not-observed' },
+      ...(error ? {} : { prepare: { status: 'ok' as const, ms: prepareMs } }),
+      ...(error ? {} : { send: { status: 'ok' as const, ms: sendMs } }),
+    },
+    blockPositions: {},
+    error,
+  }
+}
+
 describe('aggregateRuns', () => {
   it('computes median and p95 per stage across N successful runs', () => {
     const records = [
@@ -125,5 +146,69 @@ describe('aggregateRuns', () => {
     const records = [makeRecord(100, 1000), makeRecord(110, 1100), makeRecord(5000, 50000)]
     const metrics = aggregateRuns('p', '4337-bundler', 'L', records)
     expect(metrics.stages.submit?.median).toBe(110)
+  })
+})
+
+// ── aggregateRuns with prepare/send decomposition ─────────────────────────────
+
+describe('aggregateRuns — prepare/send stages', () => {
+  it('aggregates submit, prepare, and send stages for wallet-sendcalls records', () => {
+    const records = [
+      makeWalletRecord(300, 100, 200, 3000),
+      makeWalletRecord(400, 150, 250, 4000),
+      makeWalletRecord(500, 200, 300, 5000),
+    ]
+    const metrics = aggregateRuns('alchemy-wallet-sendcalls', 'wallet-sendcalls', 'Smart Wallet (EIP-7702)', records)
+
+    expect(metrics.stages.submit?.median).toBe(400)
+    expect(metrics.stages.submit?.count).toBe(3)
+    expect(metrics.stages.prepare?.median).toBe(150)
+    expect(metrics.stages.prepare?.p95).toBe(200)
+    expect(metrics.stages.prepare?.count).toBe(3)
+    expect(metrics.stages.send?.median).toBe(250)
+    expect(metrics.stages.send?.p95).toBe(300)
+    expect(metrics.stages.send?.count).toBe(3)
+  })
+
+  it('BSO-style records with only submit aggregate unchanged — prepare/send are absent', () => {
+    const records = [
+      makeRecord(100, 1000),
+      makeRecord(200, 2000),
+    ]
+    const metrics = aggregateRuns('alchemy-mav2-bso', '4337-bundler', 'Modular Account v2 (BSO)', records)
+
+    expect(metrics.stages.submit?.median).toBe(150)
+    expect(metrics.stages.prepare).toBeUndefined()
+    expect(metrics.stages.send).toBeUndefined()
+  })
+
+  it('mixed results — failed runs do not contribute to prepare/send stage metrics', () => {
+    const records = [
+      makeWalletRecord(300, 100, 200, 3000),
+      makeWalletRecord(400, 150, 250, 4000),
+      makeWalletRecord(0, 0, 0, 0, 'sendPreparedCalls failed'),
+    ]
+    const metrics = aggregateRuns('alchemy-wallet-sendcalls', 'wallet-sendcalls', 'Smart Wallet (EIP-7702)', records)
+
+    expect(metrics.runCount).toBe(3)
+    expect(metrics.failureCount).toBe(1)
+    expect(metrics.stages.submit?.count).toBe(2)
+    expect(metrics.stages.prepare?.count).toBe(2)
+    expect(metrics.stages.send?.count).toBe(2)
+    expect(metrics.stages.prepare?.median).toBe(125)
+    expect(metrics.stages.send?.median).toBe(225)
+  })
+
+  it('submit-failed variant — prepare/send are absent, submit is failed', () => {
+    const records = [
+      makeWalletRecord(0, 0, 0, 0, 'prepareCalls failed'),
+      makeWalletRecord(0, 0, 0, 0, 'sendPreparedCalls failed'),
+    ]
+    const metrics = aggregateRuns('alchemy-wallet-sendcalls', 'wallet-sendcalls', 'Smart Wallet (EIP-7702)', records)
+
+    expect(metrics.failureCount).toBe(2)
+    expect(metrics.stages.submit).toBeUndefined()
+    expect(metrics.stages.prepare).toBeUndefined()
+    expect(metrics.stages.send).toBeUndefined()
   })
 })

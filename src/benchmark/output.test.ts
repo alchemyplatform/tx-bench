@@ -153,4 +153,86 @@ describe('serializeOutput', () => {
     expect(json).toContain('"timed-out"')
     expect(json).toContain('"not-observed"')
   })
+
+  it('serializes prepare and send stages in output JSON when present', () => {
+    const out = buildOutput({
+      config: FULL_CONFIG,
+      results: [{
+        row: { id: 'wallet-test', label: 'Wallet Test', protocolClass: 'wallet-sendcalls', accountTypeLabel: 'Smart Wallet', requiredEnv: [], runnable: true, missingEnv: [] },
+        records: [{
+          provider: 'wallet-test',
+          runIndex: 0,
+          protocolClass: 'wallet-sendcalls',
+          accountTypeLabel: 'Smart Wallet',
+          accountAddress: '0x0000000000000000000000000000000000000002',
+          userOpHash: ('0x' + 'bb'.repeat(32)) as `0x${string}`,
+          stages: {
+            submit: { status: 'ok', ms: 300 },
+            prepare: { status: 'ok', ms: 100 },
+            send: { status: 'ok', ms: 200 },
+            preconf: { status: 'not-observed' },
+            canonical: { status: 'ok', ms: 3000 },
+            providerReceipt: { status: 'not-observed' },
+          },
+          blockPositions: { canonical: { blockNumber: 999999n, txHash: ('0x' + 'cc'.repeat(32)) as `0x${string}` } },
+        }],
+        metrics: {
+          provider: 'wallet-test', protocolClass: 'wallet-sendcalls', accountTypeLabel: 'Smart Wallet',
+          runCount: 1, failureCount: 0,
+          stages: {
+            submit: { median: 300, p95: 300, p99: 300, count: 1 },
+            prepare: { median: 100, p95: 100, p99: 100, count: 1 },
+            send: { median: 200, p95: 200, p99: 200, count: 1 },
+            canonical: { median: 3000, p95: 3000, p99: 3000, count: 1 },
+          },
+        },
+      }],
+      preconfAvailable: false,
+    })
+    const json = serializeOutput(out)
+    expect(json).toContain('"prepare"')
+    expect(json).toContain('"send"')
+    expect(json).toContain('100')  // prepareMs
+    expect(json).toContain('200')  // sendMs
+  })
+
+  it('omits prepare and send blocks from output JSON when absent (BSO-style)', () => {
+    const out = buildOutput({
+      config: FULL_CONFIG,
+      results: [{
+        row: { id: 'bso-test', label: 'BSO Test', protocolClass: '4337-bundler', accountTypeLabel: 'BSO', requiredEnv: [], runnable: true, missingEnv: [] },
+        records: [{
+          provider: 'bso-test',
+          runIndex: 0,
+          protocolClass: '4337-bundler',
+          accountTypeLabel: 'BSO',
+          accountAddress: '0x0000000000000000000000000000000000000003',
+          userOpHash: ('0x' + 'dd'.repeat(32)) as `0x${string}`,
+          stages: {
+            submit: { status: 'ok', ms: 300 },
+            preconf: { status: 'not-observed' },
+            canonical: { status: 'ok', ms: 3000 },
+            providerReceipt: { status: 'not-observed' },
+          },
+          blockPositions: {},
+        }],
+        metrics: {
+          provider: 'bso-test', protocolClass: '4337-bundler', accountTypeLabel: 'BSO',
+          runCount: 1, failureCount: 0,
+          stages: {
+            submit: { median: 300, p95: 300, p99: 300, count: 1 },
+            canonical: { median: 3000, p95: 3000, p99: 3000, count: 1 },
+          },
+        },
+      }],
+      preconfAvailable: false,
+    })
+    const json = serializeOutput(out)
+    // The metrics.stages object should not contain prepare/send keys
+    // Check the metrics portion of the JSON for absence of prepare/send
+    const parsed = JSON.parse(json)
+    const stages = parsed.results[0].metrics.stages
+    expect(stages.prepare).toBeUndefined()
+    expect(stages.send).toBeUndefined()
+  })
 })

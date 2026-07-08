@@ -1,6 +1,8 @@
-const stages = ['submit', 'preconf', 'canonical']
+const stages = ['submit', 'prepare', 'send', 'preconf', 'canonical']
 const stageLabels = {
   submit: 'Submit',
+  prepare: 'Prepare',
+  send: 'Send',
   preconf: 'Flashblock',
   canonical: 'Canonical',
   providerReceipt: 'Receipt',
@@ -231,6 +233,8 @@ function renderDetail(results) {
   els.detail.innerHTML = `
     <div class="detail-grid">
       ${detailStat('Submit med/p95', formatMetric(metrics.stages.submit))}
+      ${metrics.stages.prepare ? detailStat('Prepare med/p95', formatMetric(metrics.stages.prepare)) : ''}
+      ${metrics.stages.send ? detailStat('Send med/p95', formatMetric(metrics.stages.send)) : ''}
       ${detailStat('Preconf med/p95', state.output.preconfAvailable ? formatMetric(metrics.stages.preconf) : 'Unavailable')}
       ${detailStat('Canonical med/p95', formatMetric(metrics.stages.canonical))}
       ${detailStat('Failures', `${metrics.failureCount}/${metrics.runCount}`)}

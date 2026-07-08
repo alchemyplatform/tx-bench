@@ -1,47 +1,180 @@
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import { base } from 'viem/chains'
+import { createPublicClient, http } from 'viem'
+import type { Chain } from 'viem'
 import { createSmartWalletClient, alchemyWalletTransport } from '@alchemy/wallet-apis'
 import type { Config } from '../config.js'
 import type { AccountClient, ProviderAdapter, SponsoredResult } from './types.js'
 import type { CanonicalResult } from '../oracle/canonical.js'
+import { resolveChain } from '../chains.js'
 
 // ── Dependency types (injectable for testing) ─────────────────────────────────
 
 type ClientFactory = typeof createSmartWalletClient
 type KeyGen = typeof generatePrivateKey
+type ChainResolver = (network: string) => Chain
+type GetCodeFn = (address: `0x${string}`) => Promise<string | undefined>
+type SendSetupOpFn = (signer: ReturnType<typeof privateKeyToAccount>) => Promise<void>
+
+// ── Bootstrap polling config ──────────────────────────────────────────────────
+
+const BOOTSTRAP_POLL_INTERVAL_MS = 2_000
+const BOOTSTRAP_POLL_TIMEOUT_MS = 30_000
 
 // ── AccountClient impl ────────────────────────────────────────────────────────
 
 class AlchemyWalletSendCallsAccountClient implements AccountClient {
+  // Only set when a stable owner key is configured; undefined in random mode.
+  private readonly stableOwner: ReturnType<typeof privateKeyToAccount> | undefined
+  // ensureDeployed is only attached when stableOwner is set (see constructor).
+  readonly ensureDeployed?: () => Promise<void>
+
   constructor(
     private readonly apiKey: string,
     private readonly policyId: string,
     private readonly canonicalTimeoutMs: number,
+    private readonly network: string,
     private readonly createClient: ClientFactory,
-    private readonly genKey: KeyGen
-  ) {}
+    private readonly genKey: KeyGen,
+    private readonly chainResolver: ChainResolver = resolveChain,
+    ownerPrivateKey?: `0x${string}`,
+    private readonly getCodeFn?: GetCodeFn,
+    private readonly sendSetupOpFn?: SendSetupOpFn,
+  ) {
+    if (ownerPrivateKey) {
+      this.stableOwner = privateKeyToAccount(ownerPrivateKey)
+      // Attach ensureDeployed only when a stable key is set, so the service's
+      // `typeof client.ensureDeployed !== 'function'` check skips it in random mode.
+      this.ensureDeployed = this._ensureDeployed.bind(this)
+    }
+  }
+
+  // ── Stable-owner self-bootstrap ─────────────────────────────────────────────
+
+  private async _ensureDeployed(signal?: AbortSignal): Promise<void> {
+    if (!this.stableOwner) return
+
+    const signerAddress = this.stableOwner.address
+    const chain = this.chainResolver(this.network)
+
+    // Resolve the getCode function (injected for tests, real for production).
+    const getCode = this.getCodeFn ?? this._makeGetCode(chain)
+
+    // Check if EIP-7702 delegation is already set (non-empty code at the EOA).
+    const existingCode = await getCode(signerAddress)
+    if (existingCode && existingCode !== '0x') return
+
+    // Not set up — send one untimed setup op via the current sendCalls path.
+    const sendSetup = this.sendSetupOpFn ?? ((signer) => this._sendSetupOp(signer))
+    await sendSetup(this.stableOwner)
+
+    // Poll until delegation is observable, with a bounded timeout.
+    const deadline = Date.now() + BOOTSTRAP_POLL_TIMEOUT_MS
+    while (Date.now() < deadline) {
+      if (signal?.aborted) throw new Error('Bootstrap aborted')
+      await sleep(BOOTSTRAP_POLL_INTERVAL_MS)
+      // Tolerate transient getCode RPC errors during polling (rate limits,
+      // temporary 5xx, network blips) — only the deadline aborts the bootstrap.
+      try {
+        const code = await getCode(signerAddress)
+        if (code && code !== '0x') return
+      } catch {
+        // transient RPC error — keep polling until the deadline
+      }
+    }
+
+    throw new Error(
+      `Bootstrap timeout: EIP-7702 account ${signerAddress} not delegated within ${BOOTSTRAP_POLL_TIMEOUT_MS / 1000}s`,
+    )
+  }
+
+  private _makeGetCode(chain: Chain): GetCodeFn {
+    const publicClient = createPublicClient({
+      chain,
+      transport: http(`https://${this.network}.g.alchemy.com/v2/${this.apiKey}`),
+    })
+    return (addr) => publicClient.getCode({ address: addr })
+  }
+
+  private async _sendSetupOp(signer: ReturnType<typeof privateKeyToAccount>): Promise<void> {
+    const chain = this.chainResolver(this.network)
+    const client = this.createClient({
+      signer,
+      transport: alchemyWalletTransport({ apiKey: this.apiKey }),
+      chain,
+      paymaster: { policyId: this.policyId },
+    })
+
+    const { id: callId } = await client.sendCalls({
+      calls: [{ to: '0x000000000000000000000000000000000000dEaD', data: '0x', value: 0n }],
+    })
+
+    // Wait for setup success before returning.
+    const status = await client.waitForCallsStatus({
+      id: callId,
+      timeout: this.canonicalTimeoutMs,
+    })
+
+    if (status.status !== 'success') {
+      throw new Error(`EIP-7702 setup op failed with status: ${status.status}`)
+    }
+  }
+
+  // ── Timed send (prepare → sign → send decomposition) ───────────────────────
 
   async sendSponsored(): Promise<SponsoredResult> {
-    const tStart = performance.now()
+    // Use the stable owner when configured; fall back to per-call random key.
+    const signer = this.stableOwner ?? privateKeyToAccount(this.genKey())
 
-    const key = this.genKey()
-    const signer = privateKeyToAccount(key)
+    const chain = this.chainResolver(this.network)
 
     const client = this.createClient({
       signer,
       transport: alchemyWalletTransport({ apiKey: this.apiKey }),
-      chain: base,
+      chain,
       paymaster: { policyId: this.policyId },
     })
 
     // Calling to: signer.address (the EIP-7702 smart wallet itself) with empty
     // data invokes the wallet's fallback and fails validation. Use a non-self target.
-    const { id: callId } = await client.sendCalls({
-      calls: [{ to: '0x000000000000000000000000000000000000dEaD', data: '0x', value: 0n }],
-    })
-    const tAccepted = performance.now()
+    const calls = [{ to: '0x000000000000000000000000000000000000dEaD' as const, data: '0x' as const, value: 0n }]
 
-    // waitForCallsStatus polls until the tx is mined — canonical timing resolves here
+    // ── Stage 1: prepare + sign ──────────────────────────────────────────────
+    const tPrepareStart = performance.now()
+
+    // prepareCalls builds the user operation and returns a signature request.
+    // The client is already constructed with paymaster caps, but per-call caps
+    // are included for explicitness — some SDK versions may require them.
+    const prepared = await client.prepareCalls({
+      calls,
+      capabilities: { paymaster: { policyId: this.policyId } },
+    })
+
+    // signPreparedCalls accepts the whole prepareCalls result and returns signed calls.
+    const signed = await client.signPreparedCalls(prepared)
+
+    const tPrepareEnd = performance.now()
+    const prepareMs = tPrepareEnd - tPrepareStart
+
+    // ── Stage 2: send ─────────────────────────────────────────────────────────
+    const tSendStart = performance.now()
+
+    // NOTE: sendPreparedCalls call-pattern ambiguity — the SDK type defs show
+    // SendPreparedCallsParams as the signed-call object itself (direct pass:
+    // sendPreparedCalls(signed)), while the JSDoc example shows a wrapped form
+    // ({ signedCalls }). The direct pass matches the type definition and is used
+    // here. This must be verified at runtime against the real SDK — if the
+    // wrapped form is required, change to sendPreparedCalls({ ...signed }).
+    const { id: callId } = await client.sendPreparedCalls(signed)
+
+    const tSendEnd = performance.now()
+    const sendMs = tSendEnd - tSendStart
+    const acceptedAtMs = tSendEnd
+
+    // Compatibility total: submitMs = prepareMs + sendMs so downstream consumers
+    // that hardcode `submit` keep working (U2 compatibility-total design).
+    const submitMs = prepareMs + sendMs
+
+    // ── Canonical: waitForCallsStatus polls until the tx is mined ─────────────
     const status = await client.waitForCallsStatus({
       id: callId,
       timeout: this.canonicalTimeoutMs,
@@ -70,12 +203,18 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     return {
       userOpHash: callId as `0x${string}`,
       protocolClass: 'wallet-sendcalls',
-      submitMs: tAccepted - tStart,
-      acceptedAtMs: tAccepted,
+      submitMs,
+      prepareMs,
+      sendMs,
+      acceptedAtMs,
       accountAddress: signer.address,
       inlineCanonical,
     }
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 // ── Adapter factory ───────────────────────────────────────────────────────────
@@ -83,9 +222,15 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
 export function createAlchemyWalletSendCallsAdapter(deps?: {
   createClient?: ClientFactory
   generateKey?: KeyGen
+  chainResolver?: ChainResolver
+  getCodeFn?: GetCodeFn
+  sendSetupOpFn?: SendSetupOpFn
 }): ProviderAdapter {
   const createClient = deps?.createClient ?? createSmartWalletClient
   const genKey = deps?.generateKey ?? generatePrivateKey
+  const chainResolver = deps?.chainResolver ?? resolveChain
+  const getCodeFn = deps?.getCodeFn
+  const sendSetupOpFn = deps?.sendSetupOpFn
 
   return {
     id: 'alchemy-wallet-sendcalls',
@@ -101,8 +246,13 @@ export function createAlchemyWalletSendCallsAdapter(deps?: {
         cfg.apiKey,
         cfg.policyId,
         config.timeouts.canonicalMs,
+        config.network,
         createClient,
         genKey,
+        chainResolver,
+        config.ownerPrivateKey,
+        getCodeFn,
+        sendSetupOpFn,
       )
     },
   }

@@ -149,6 +149,8 @@ export function buildRunRecord(input: RunInput): RunRecord {
       preconf: preconfStage,
       canonical: canonicalStage,
       providerReceipt: providerReceiptStage,
+      ...(sponsored.prepareMs != null ? { prepare: makeStage('ok', sponsored.prepareMs) } : {}),
+      ...(sponsored.sendMs != null ? { send: makeStage('ok', sponsored.sendMs) } : {}),
     },
     blockPositions,
     ...(gas

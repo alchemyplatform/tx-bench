@@ -70,11 +70,25 @@ export async function runPreflight(
   if (config.providers.zerodev) providerUrls.push(config.providers.zerodev.rpcUrl)
 
   // ── 2. Neutrality guard — neutral node must not overlap any provider ──────────
+  // The neutral canonical oracle must be independent of the contestants so no
+  // provider times itself. Exception: when EVERY runnable provider is Alchemy,
+  // there is no non-Alchemy contestant to disadvantage, so an Alchemy neutral RPC
+  // is permitted (with a warning) — useful when independent nodes are unreliable
+  // for a given chain. Mixed-provider runs still enforce the guard as an error.
+  const allRunnableAlchemy = runnableRows.length > 0 && runnableRows.every(r => r.id.startsWith('alchemy-'))
   if (isNeutralOverlap(config.neutral.rpcUrl, providerUrls)) {
-    errors.push(
-      `Neutral RPC (${config.neutral.rpcUrl}) overlaps a benchmarked provider — ` +
-      'use an independent node for the neutral canonical endpoint'
-    )
+    if (allRunnableAlchemy) {
+      warnings.push(
+        `Neutral RPC (${config.neutral.rpcUrl}) overlaps the Alchemy provider(s), ` +
+        'but all runnable providers are Alchemy — no contestant is disadvantaged. ' +
+        'Canonical timing will use the Alchemy node.',
+      )
+    } else {
+      errors.push(
+        `Neutral RPC (${config.neutral.rpcUrl}) overlaps a benchmarked provider — ` +
+        'use an independent node for the neutral canonical endpoint'
+      )
+    }
   }
 
   if (errors.length > 0) {
@@ -107,8 +121,11 @@ export async function runPreflight(
     runnableRows
       .filter(r => r.protocolClass === '4337-bundler')
       .map(async row => {
+        // Map each 4337 provider row to its RPC URL for the chain-id agreement
+        // check. Alchemy adapters (light-account, mav2, mav2-bso) all use the
+        // Alchemy RPC; only the id prefix distinguishes the provider.
         const rpcUrl =
-          row.id === 'alchemy-light-account'
+          row.id.startsWith('alchemy-')
             ? config.providers.alchemy?.rpcUrl
             : row.id === 'pimlico-safe'
             ? config.providers.pimlico?.rpcUrl
