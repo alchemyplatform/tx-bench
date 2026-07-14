@@ -51,9 +51,11 @@ cp .env.example .env
 | Pimlico (Safe)                     | `PIMLICO_API_KEY`, `PIMLICO_POLICY_ID` |
 | ZeroDev (Kernel / UltraRelay)      | `ZERODEV_API_KEY`, `ZERODEV_PROJECT_ID` |
 
-Plus `NEUTRAL_RPC_URL` pointing to an independent Base mainnet HTTP RPC (must **not** be Alchemy, Pimlico, or ZeroDev), and optionally `NEUTRAL_FLASHBLOCK_WS_URL` for a non-contestant flashblock endpoint.
+Plus `OWNER_PRIVATE_KEY` (required for the monitor; enables stable deterministic owner accounts with self-bootstrap — optional for the CLI, which falls back to per-run random keys when unset), and optionally `NEUTRAL_RPC_URL` / `NEUTRAL_FLASHBLOCK_WS_URL` for an independent canonical oracle.
 
-> **RPC routing:** `NEUTRAL_RPC_URL` is used exclusively by the canonical oracle (`getLogs`, `getBlockNumber`) — neutrality matters there. Provider-specific pre-flight reads (nonce lookups, contract code fetches) are routed separately: Pimlico reads use the Alchemy RPC (Pimlico's bundler URL does not support `eth_call`), and ZeroDev reads use ZeroDev's own RPC (it is a full node). This prevents the free public Base node from being rate-limited under concurrent load.
+> **Neutral oracle (Alchemy-only monitoring):** when `NEUTRAL_RPC_URL` is unset, the canonical oracle defaults to the Alchemy chain-specific URL (`https://<NETWORK>.g.alchemy.com/v2/<API key>`). This is allowed because all monitor adapters are Alchemy, so no contestant is disadvantaged (the preflight emits a warning, not an error). Set `NEUTRAL_RPC_URL` to a truly independent node ONLY for mixed-provider runs (Alchemy + Pimlico/ZeroDev) where neutrality is required for fair cross-provider timing.
+>
+> **RPC routing:** `NEUTRAL_RPC_URL` is used exclusively by the canonical oracle (`getLogs`, `getBlockNumber`) — neutrality matters there. Provider-specific pre-flight reads (nonce lookups, contract code fetches) are routed separately: Pimlico reads use the Alchemy RPC (Pimlico's bundler URL does not support `eth_call`), and ZeroDev reads use ZeroDev's own RPC (it is a full node).
 
 ---
 
