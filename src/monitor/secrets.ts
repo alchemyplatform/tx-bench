@@ -44,15 +44,22 @@ export async function loadMonitoringCredentials(
   let neutralRpcUrls: Record<string, string> | undefined
   if (obj['NEUTRAL_RPC_URLS'] !== undefined) {
     const rawMap = obj['NEUTRAL_RPC_URLS']
-    if (typeof rawMap !== 'object' || rawMap === null || Array.isArray(rawMap)) {
-      throw new Error(`Secret ${SECRET_NAME}: NEUTRAL_RPC_URLS must be a JSON object of network -> URL`)
-    }
-    for (const [network, url] of Object.entries(rawMap as Record<string, unknown>)) {
-      if (typeof url !== 'string') {
-        throw new Error(`Secret ${SECRET_NAME}: NEUTRAL_RPC_URLS["${network}"] must be a string`)
+    // Tolerant parsing: some secret stores double-encode this field as a JSON
+    // string (e.g. "{}"). Rather than crash the monitor on a malformed value,
+    // treat any non-plain-object value as absent. For Alchemy-only monitoring
+    // the per-network neutral map is unnecessary — the loop falls back to the
+    // Alchemy chain URL as the neutral canonical oracle (allowed by preflight
+    // when all runnable providers are Alchemy).
+    if (typeof rawMap === 'object' && rawMap !== null && !Array.isArray(rawMap)) {
+      const map: Record<string, string> = {}
+      for (const [network, url] of Object.entries(rawMap as Record<string, unknown>)) {
+        if (typeof url === 'string') {
+          map[network] = url
+        }
       }
+      neutralRpcUrls = map
     }
-    neutralRpcUrls = rawMap as Record<string, string>
+    // else: ignore non-object values (string, number, null, array) — no throw.
   }
 
   return {
