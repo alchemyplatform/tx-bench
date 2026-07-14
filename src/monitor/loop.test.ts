@@ -232,18 +232,19 @@ describe('runOnce', () => {
     expect(p50Values.some(v => v.labels['network'] === 'eth-mainnet')).toBe(false)
   })
 
-  it('resolves a known-network default neutral RPC URL when none is configured', async () => {
+  it('defaults the neutral RPC to the Alchemy chain URL when none is configured (Alchemy-only monitoring)', async () => {
     const metrics = makeMetrics()
     const capturedEnvs: EnvSource[] = []
     const runner = mock(async (_config: Config, env: EnvSource) => {
       capturedEnvs.push(env)
       return []
     })
-    // No NEUTRAL_RPC_URL anywhere — should fall back to the built-in default for eth-mainnet
+    // No NEUTRAL_RPC_URL anywhere — falls back to the Alchemy chain URL built
+    // from the credentials (allowed by preflight when all runnable are Alchemy).
     const env: EnvSource = { NETWORKS: 'eth-mainnet' }
 
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
-    expect(capturedEnvs[0]?.NEUTRAL_RPC_URL).toBe('https://ethereum-rpc.publicnode.com')
+    expect(capturedEnvs[0]?.NEUTRAL_RPC_URL).toBe('https://eth-mainnet.g.alchemy.com/v2/test-key')
   })
 
   it('prefers a per-network NEUTRAL_RPC_URLS override from credentials over the built-in default', async () => {

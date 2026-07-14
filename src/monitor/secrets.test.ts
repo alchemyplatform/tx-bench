@@ -87,7 +87,7 @@ describe('loadMonitoringCredentials', () => {
     expect(creds.NEUTRAL_RPC_URLS).toBeUndefined()
   })
 
-  it('throws when NEUTRAL_RPC_URLS is not an object', async () => {
+  it('tolerates a non-object NEUTRAL_RPC_URLS (treats as absent, no throw)', async () => {
     const secret = JSON.stringify({
       ALCHEMY_API_KEY: 'k',
       ALCHEMY_POLICY_ID: 'p',
@@ -95,22 +95,22 @@ describe('loadMonitoringCredentials', () => {
       NEUTRAL_RPC_URLS: 'not-an-object',
     })
     const client = makeClient(secret)
-    await expect(loadMonitoringCredentials('us-east-1', client)).rejects.toThrow(
-      'NEUTRAL_RPC_URLS must be a JSON object',
-    )
+    const creds = await loadMonitoringCredentials('us-east-1', client)
+    // Non-object values are ignored rather than crashing the monitor.
+    expect(creds.NEUTRAL_RPC_URLS).toBeUndefined()
   })
 
-  it('throws when a NEUTRAL_RPC_URLS value is not a string', async () => {
+  it('ignores non-string entries in NEUTRAL_RPC_URLS', async () => {
     const secret = JSON.stringify({
       ALCHEMY_API_KEY: 'k',
       ALCHEMY_POLICY_ID: 'p',
       OWNER_PRIVATE_KEY: '0x' + '22'.repeat(32),
-      NEUTRAL_RPC_URLS: { 'eth-mainnet': 12345 },
+      NEUTRAL_RPC_URLS: { 'eth-mainnet': 12345, 'base-mainnet': 'https://base.example.com' },
     })
     const client = makeClient(secret)
-    await expect(loadMonitoringCredentials('us-east-1', client)).rejects.toThrow(
-      'NEUTRAL_RPC_URLS["eth-mainnet"] must be a string',
-    )
+    const creds = await loadMonitoringCredentials('us-east-1', client)
+    // Non-string values are dropped; string values are kept.
+    expect(creds.NEUTRAL_RPC_URLS).toEqual({ 'base-mainnet': 'https://base.example.com' })
   })
 
   it('throws a descriptive error when ALCHEMY_API_KEY is missing', async () => {

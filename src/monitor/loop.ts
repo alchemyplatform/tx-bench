@@ -57,7 +57,19 @@ function resolveNeutralRpcUrl(
   credentials: MonitoringCredentials,
   mergedEnv: EnvSource,
 ): string | undefined {
-  return credentials.NEUTRAL_RPC_URLS?.[network] ?? KNOWN_NETWORKS[network]?.defaultNeutralRpcUrl ?? mergedEnv.NEUTRAL_RPC_URL
+  // Explicit per-network or single neutral overrides win (for future
+  // mixed-provider monitoring where a truly independent node is required).
+  const explicit = credentials.NEUTRAL_RPC_URLS?.[network] ?? mergedEnv.NEUTRAL_RPC_URL
+  if (explicit) return explicit
+  // Default for Alchemy-only monitoring: use the Alchemy chain-specific URL as
+  // the neutral canonical oracle. The preflight allows this when all runnable
+  // providers are Alchemy (no contestant disadvantaged), and it is reliable for
+  // UserOperationEvent log delivery on chains where free public nodes miss logs.
+  if (credentials.ALCHEMY_API_KEY) {
+    return `https://${network}.g.alchemy.com/v2/${credentials.ALCHEMY_API_KEY}`
+  }
+  // Last resort: the built-in public neutral default for known networks.
+  return KNOWN_NETWORKS[network]?.defaultNeutralRpcUrl
 }
 
 function buildEnv(credentials: MonitoringCredentials, baseEnv: EnvSource): EnvSource {
