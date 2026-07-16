@@ -104,10 +104,60 @@ function createDefaultGridRunner(): GridRunner {
     const entries = buildAdapterEntries(env)
 
     try {
-      return await runBenchmarkGrid(config, entries, canonicalOracle, flashblockOracle)
+      return await runBenchmarkGrid(config, entries, canonicalOracle, flashblockOracle, (ev) => {
+        // Surface per-iteration failures in real time so CloudWatch Logs shows
+        // *why* a run is failing as it happens, not just the aggregate later.
+        if (ev.kind === 'provider-done' && ev.status === 'failed') {
+          console.log(JSON.stringify({
+            event: 'iteration_failed',
+            network: config.network,
+            provider: ev.provider,
+            iteration: ev.iteration,
+          }))
+        }
+      })
     } finally {
       canonicalOracle.close()
       flashblockOracle.close()
+    }
+  }
+}
+
+// ── Structured logging ──────────────────────────────────────────────────────
+// All monitor logs are single-line JSON so CloudWatch Logs Insights can filter
+// by `event`. Error reasons here are already private-key-redacted by the
+// service (serializeErrorRedacted), so they are safe to emit.
+function logRunResults(results: ProviderRunResult[], network: string, region: string): void {
+  for (const { row, records, metrics: pm } of results) {
+    const stages: Record<string, { median: number; p95: number; count: number }> = {}
+    for (const [stage, sm] of Object.entries(pm.stages)) {
+      if (sm) stages[stage] = { median: sm.median, p95: sm.p95, count: sm.count }
+    }
+    console.log(JSON.stringify({
+      event: 'provider_summary',
+      network,
+      region,
+      provider: row.id,
+      protocol_class: pm.protocolClass,
+      run_count: pm.runCount,
+      failure_count: pm.failureCount,
+      success_rate: pm.runCount > 0 ? (pm.runCount - pm.failureCount) / pm.runCount : 0,
+      stages,
+    }))
+
+    for (const rec of records) {
+      const failed = Object.entries(rec.stages).filter(([, s]) => s.status === 'failed' || s.status === 'timed-out')
+      if (failed.length === 0) continue
+      console.log(JSON.stringify({
+        event: 'run_failed',
+        network,
+        region,
+        provider: row.id,
+        run_index: rec.runIndex,
+        account: rec.accountAddress,
+        error: rec.error ?? null,
+        stages: failed.map(([stage, s]) => ({ stage, status: s.status, reason: s.reason ?? null })),
+      }))
     }
   }
 }
@@ -160,6 +210,9 @@ async function runOnceForNetwork(
 
   try {
     const results = await runner(config, env)
+    // Log the detailed per-provider / per-failed-run breakdown BEFORE pushing
+    // gauges so diagnostics are emitted even if gauge publishing throws.
+    logRunResults(results, config.network, region)
     pushGauges(results, metrics, config.network, region)
     console.log(JSON.stringify({ event: 'run_complete', network: config.network, region, providerCount: results.length }))
   } catch (e) {

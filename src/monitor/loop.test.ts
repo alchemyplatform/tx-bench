@@ -5,6 +5,7 @@ import { runOnce, buildAdapterEntries } from './loop'
 import type { MonitoringCredentials } from './secrets'
 import type { ProviderRunResult } from '../benchmark/service'
 import type { Config, EnvSource } from '../benchmark/config'
+import type { RunRecord } from '../benchmark/contracts'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -262,6 +263,67 @@ describe('runOnce', () => {
 
     await runOnce(credsWithOverride, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
     expect(capturedEnvs[0]?.NEUTRAL_RPC_URL).toBe('https://custom-eth.example.com')
+  })
+
+  it('logs a provider_summary and a run_failed event with the redacted reason when a run fails', async () => {
+    const metrics = makeMetrics()
+    const failedRecord: RunRecord = {
+      provider: 'alchemy-mav2-bso',
+      runIndex: 0,
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Modular Account v2 (BSO)',
+      accountAddress: '0x' + '00'.repeat(20) as `0x${string}`,
+      userOpHash: '0x' + '00'.repeat(32) as `0x${string}`,
+      stages: {
+        submit: { status: 'failed', reason: 'Policy does not support bundler sponsorship' },
+        preconf: { status: 'not-observed' },
+        canonical: { status: 'not-observed' },
+        providerReceipt: { status: 'not-observed' },
+      },
+      error: 'Policy does not support bundler sponsorship',
+    }
+    const result: ProviderRunResult = {
+      row: {
+        id: 'alchemy-mav2-bso',
+        label: 'Alchemy (MAv2 BSO)',
+        protocolClass: '4337-bundler',
+        accountTypeLabel: 'Modular Account v2 (BSO)',
+        requiredEnv: [],
+        runnable: true,
+        missingEnv: [],
+      },
+      records: [failedRecord],
+      metrics: {
+        provider: 'alchemy-mav2-bso',
+        protocolClass: '4337-bundler',
+        accountTypeLabel: 'Modular Account v2 (BSO)',
+        runCount: 1,
+        failureCount: 1,
+        stages: { submit: undefined, preconf: undefined, canonical: undefined, providerReceipt: undefined },
+      },
+    }
+    const runner = mockGridRunner([result])
+
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => { logs.push(args.join(' ')) }
+    try {
+      await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: BASE_ENV })
+    } finally {
+      console.log = origLog
+    }
+
+    const summary = logs.find(l => l.includes('"event":"provider_summary"') && l.includes('alchemy-mav2-bso'))
+    expect(summary).toBeDefined()
+    expect(summary).toContain('"failure_count":1')
+    expect(summary).toContain('"success_rate":0')
+
+    const failed = logs.find(l => l.includes('"event":"run_failed"'))
+    expect(failed).toBeDefined()
+    expect(failed).toContain('"provider":"alchemy-mav2-bso"')
+    expect(failed).toContain('"stage":"submit"')
+    expect(failed).toContain('"status":"failed"')
+    expect(failed).toContain('Policy does not support bundler sponsorship')
   })
 })
 
