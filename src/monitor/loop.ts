@@ -103,11 +103,83 @@ function createDefaultGridRunner(): GridRunner {
     const flashblockOracle = createFlashblockOracle('wss://no-op', { ws: NO_OP_WS })
     const entries = buildAdapterEntries(env)
 
+    const region = env.REGION ?? env.AWS_REGION ?? null
+
     try {
-      return await runBenchmarkGrid(config, entries, canonicalOracle, flashblockOracle)
+      return await runBenchmarkGrid(config, entries, canonicalOracle, flashblockOracle, (ev) => {
+        // Trace every lifecycle event so CloudWatch Logs shows a run progressing
+        // in real time: iteration_start → provider_done (per adapter) →
+        // iteration_done, repeated for each of runCount iterations. Without this
+        // a long run looks silent for minutes and there's no way to tell it's
+        // alive vs hung.
+        if (ev.kind === 'iteration-start') {
+          console.log(JSON.stringify({
+            event: 'iteration_start',
+            network: config.network,
+            region,
+            iteration: ev.iteration,
+            total: ev.total,
+          }))
+        } else if (ev.kind === 'provider-done') {
+          console.log(JSON.stringify({
+            event: 'provider_done',
+            network: config.network,
+            region,
+            provider: ev.provider,
+            iteration: ev.iteration,
+            status: ev.status,
+          }))
+        } else if (ev.kind === 'iteration-done') {
+          console.log(JSON.stringify({
+            event: 'iteration_done',
+            network: config.network,
+            region,
+            iteration: ev.iteration,
+          }))
+        }
+      })
     } finally {
       canonicalOracle.close()
       flashblockOracle.close()
+    }
+  }
+}
+
+// ── Structured logging ──────────────────────────────────────────────────────
+// All monitor logs are single-line JSON so CloudWatch Logs Insights can filter
+// by `event`. Error reasons here are already private-key-redacted by the
+// service (serializeErrorRedacted), so they are safe to emit.
+function logRunResults(results: ProviderRunResult[], network: string, region: string): void {
+  for (const { row, records, metrics: pm } of results) {
+    const stages: Record<string, { median: number; p95: number; count: number }> = {}
+    for (const [stage, sm] of Object.entries(pm.stages)) {
+      if (sm) stages[stage] = { median: sm.median, p95: sm.p95, count: sm.count }
+    }
+    console.log(JSON.stringify({
+      event: 'provider_summary',
+      network,
+      region,
+      provider: row.id,
+      protocol_class: pm.protocolClass,
+      run_count: pm.runCount,
+      failure_count: pm.failureCount,
+      success_rate: pm.runCount > 0 ? (pm.runCount - pm.failureCount) / pm.runCount : 0,
+      stages,
+    }))
+
+    for (const rec of records) {
+      const failed = Object.entries(rec.stages).filter(([, s]) => s.status === 'failed' || s.status === 'timed-out')
+      if (failed.length === 0) continue
+      console.log(JSON.stringify({
+        event: 'run_failed',
+        network,
+        region,
+        provider: row.id,
+        run_index: rec.runIndex,
+        account: rec.accountAddress,
+        error: rec.error ?? null,
+        stages: failed.map(([stage, s]) => ({ stage, status: s.status, reason: s.reason ?? null })),
+      }))
     }
   }
 }
@@ -158,8 +230,20 @@ async function runOnceForNetwork(
   }
   const config = loadConfig(env)
 
+  const adapterIds = buildAdapterEntries(env).map(e => e.row.id)
+  console.log(JSON.stringify({
+    event: 'run_start',
+    network: config.network,
+    region,
+    run_count: config.runCount,
+    providers: adapterIds,
+  }))
+
   try {
     const results = await runner(config, env)
+    // Log the detailed per-provider / per-failed-run breakdown BEFORE pushing
+    // gauges so diagnostics are emitted even if gauge publishing throws.
+    logRunResults(results, config.network, region)
     pushGauges(results, metrics, config.network, region)
     console.log(JSON.stringify({ event: 'run_complete', network: config.network, region, providerCount: results.length }))
   } catch (e) {
