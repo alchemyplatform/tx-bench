@@ -181,6 +181,26 @@ describe('runBenchmarkGrid — progress events', () => {
     expect(events).toContain('iteration-done')
     expect(events).toContain('provider-done')
   })
+
+  it('includes the redacted error on a failed provider-done event', async () => {
+    addrCounter = 0
+    const failedEvents: { provider: string; status: string; error?: string }[] = []
+    await runBenchmarkGrid(
+      SINGLE_RUN_CONFIG,
+      [{ row: makeRow('alchemy-light-account'), adapter: makeAdapter('alchemy-light-account', { failEvery: true }) }],
+      makeMockCanonical(),
+      MOCK_FLASHBLOCK,
+      e => {
+        if (e.kind === 'provider-done' && e.status === 'failed') {
+          failedEvents.push({ provider: e.provider, status: e.status, error: e.error })
+        }
+      }
+    )
+
+    expect(failedEvents.length).toBeGreaterThan(0)
+    expect(failedEvents[0].error).toContain('send failed')
+    expect(failedEvents[0].provider).toBe('alchemy-light-account')
+  })
 })
 
 describe('runBenchmarkGrid — ensureDeployed bootstrap', () => {

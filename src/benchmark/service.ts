@@ -22,7 +22,8 @@ export type ProviderRunResult = {
 
 export type ProgressEvent =
   | { kind: 'iteration-start'; iteration: number; total: number }
-  | { kind: 'provider-done'; provider: string; iteration: number; status: 'ok' | 'failed' }
+  | { kind: 'provider-done'; provider: string; iteration: number; status: 'ok' }
+  | { kind: 'provider-done'; provider: string; iteration: number; status: 'failed'; error: string }
   | { kind: 'iteration-done'; iteration: number }
 
 // ── Service ───────────────────────────────────────────────────────────────────
@@ -94,7 +95,7 @@ export async function runBenchmarkGrid(
             runIndex: i,
             error: buildErr,
           }))
-          onProgress?.({ kind: 'provider-done', provider: row.id, iteration: i, status: 'failed' })
+          onProgress?.({ kind: 'provider-done', provider: row.id, iteration: i, status: 'failed', error: buildErr })
           return
         }
 
@@ -135,7 +136,7 @@ export async function runBenchmarkGrid(
             runIndex: i,
             error: serializeErrorRedacted(e, config.ownerPrivateKey).message,
           }))
-          onProgress?.({ kind: 'provider-done', provider: row.id, iteration: i, status: 'failed' })
+          onProgress?.({ kind: 'provider-done', provider: row.id, iteration: i, status: 'failed', error: serializeErrorRedacted(e, config.ownerPrivateKey).message })
         }
       })
     )
