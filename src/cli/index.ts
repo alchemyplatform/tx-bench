@@ -346,7 +346,8 @@ program
         results = await runBenchmarkGrid(config, providers, canonicalOracle, flashblockOracle,
           e => {
             if (e.kind === 'provider-done') {
-              log(`  [${e.iteration + 1}/${config.runCount}] ${e.provider}: ${e.status}`)
+              const err = e.status === 'failed' ? ` — ${e.error}` : ''
+              log(`  [${e.iteration + 1}/${config.runCount}] ${e.provider}: ${e.status}${err}`)
             }
           }
         )

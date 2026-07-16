@@ -103,15 +103,42 @@ function createDefaultGridRunner(): GridRunner {
     const flashblockOracle = createFlashblockOracle('wss://no-op', { ws: NO_OP_WS })
     const entries = buildAdapterEntries(env)
 
+    const region = env.REGION ?? env.AWS_REGION ?? null
+
     try {
       return await runBenchmarkGrid(config, entries, canonicalOracle, flashblockOracle, (ev) => {
-        // Surface per-iteration failures in real time so CloudWatch Logs shows
-        // *why* a run is failing as it happens, not just the aggregate later.
-        if (ev.kind === 'provider-done' && ev.status === 'failed') {
+        // Trace every lifecycle event so CloudWatch Logs shows a run progressing
+        // in real time: iteration_start → provider_done (per adapter) →
+        // iteration_done, repeated for each of runCount iterations. Without this
+        // a long run looks silent for minutes and there's no way to tell it's
+        // alive vs hung.
+        if (ev.kind === 'iteration-start') {
           console.log(JSON.stringify({
-            event: 'iteration_failed',
+            event: 'iteration_start',
             network: config.network,
+            region,
+            iteration: ev.iteration,
+            total: ev.total,
+          }))
+        } else if (ev.kind === 'provider-done') {
+          console.log(JSON.stringify({
+            event: 'provider_done',
+            network: config.network,
+            region,
             provider: ev.provider,
+            iteration: ev.iteration,
+            status: ev.status,
+            // Include the redacted error reason on failure so the cause is
+            // visible the moment it happens, not only in the end-of-run
+            // run_failed event. The reason is already private-key-redacted by
+            // the service (serializeErrorRedacted).
+            ...(ev.status === 'failed' && { error: ev.error }),
+          }))
+        } else if (ev.kind === 'iteration-done') {
+          console.log(JSON.stringify({
+            event: 'iteration_done',
+            network: config.network,
+            region,
             iteration: ev.iteration,
           }))
         }
@@ -207,6 +234,15 @@ async function runOnceForNetwork(
     ...(neutralRpcUrl && { NEUTRAL_RPC_URL: neutralRpcUrl }),
   }
   const config = loadConfig(env)
+
+  const adapterIds = buildAdapterEntries(env).map(e => e.row.id)
+  console.log(JSON.stringify({
+    event: 'run_start',
+    network: config.network,
+    region,
+    run_count: config.runCount,
+    providers: adapterIds,
+  }))
 
   try {
     const results = await runner(config, env)

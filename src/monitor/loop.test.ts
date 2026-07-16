@@ -265,6 +265,40 @@ describe('runOnce', () => {
     expect(capturedEnvs[0]?.NEUTRAL_RPC_URL).toBe('https://custom-eth.example.com')
   })
 
+  it('logs a run_start event with network, region, run_count, and runnable providers before the run', async () => {
+    const metrics = makeMetrics()
+    const runner = mockGridRunner([])
+    // Alchemy + BSO configured → both monitored adapters are runnable.
+    const env: EnvSource = {
+      NETWORK: 'base-mainnet',
+      NEUTRAL_RPC_URL: 'https://mainnet.base.org',
+      ALCHEMY_API_KEY: 'k',
+      ALCHEMY_POLICY_ID: 'p',
+      ALCHEMY_BSO_POLICY_ID: 'bso-p',
+      OWNER_PRIVATE_KEY: ('0x' + 'aa'.repeat(32)) as `0x${string}`,
+    }
+
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => { logs.push(args.join(' ')) }
+    try {
+      await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
+    } finally {
+      console.log = origLog
+    }
+
+    const start = logs.find(l => l.includes('"event":"run_start"'))
+    expect(start).toBeDefined()
+    expect(start).toContain('"network":"base-mainnet"')
+    expect(start).toContain('"region":"us-east-1"')
+    expect(start).toContain('"run_count":20')
+    expect(start).toContain('alchemy-mav2-bso')
+    expect(start).toContain('alchemy-wallet-sendcalls')
+    // run_start is emitted before run_complete
+    expect(logs.findIndex(l => l.includes('"event":"run_start"')))
+      .toBeLessThan(logs.findIndex(l => l.includes('"event":"run_complete"')))
+  })
+
   it('logs a provider_summary and a run_failed event with the redacted reason when a run fails', async () => {
     const metrics = makeMetrics()
     const failedRecord: RunRecord = {
