@@ -106,8 +106,8 @@ function makeProviderResult(
       accountTypeLabel: 'Test',
       runCount: records.length,
       failureCount,
-      // `pm.stages` is only consumed by logRunResults now; pushGauges reads
-      // records directly. Keep it empty/undefined to prove pushGauges does not
+      // `pm.stages` is only consumed by logRunResults now; emitRunMetrics reads
+      // records directly. Keep it empty/undefined to prove emitRunMetrics does not
       // depend on pre-aggregated stage metrics.
       stages: { submit: undefined, preconf: undefined, canonical: undefined, providerReceipt: undefined },
     },
