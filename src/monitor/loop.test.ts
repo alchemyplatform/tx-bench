@@ -5,7 +5,7 @@ import { runOnce, buildAdapterEntries } from './loop'
 import type { MonitoringCredentials } from './secrets'
 import type { ProviderRunResult } from '../benchmark/service'
 import type { Config, EnvSource } from '../benchmark/config'
-import type { RunRecord } from '../benchmark/contracts'
+import type { RunRecord, Stage } from '../benchmark/contracts'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -27,12 +27,67 @@ function makeMetrics() {
   return buildMetrics(new Registry())
 }
 
+// A successful RunRecord with the given per-stage latencies (in ms). Only the
+// stages named here are populated; others default to not-observed.
+function makeRecord(
+  provider: string,
+  protocolClass: RunRecord['protocolClass'],
+  stageMs: Partial<Record<keyof RunRecord['stages'], number>>,
+  runIndex = 0,
+): RunRecord {
+  const notObserved: Stage = { status: 'not-observed' }
+  const mk = (ms: number): Stage => ({ status: 'ok', ms })
+  return {
+    provider,
+    runIndex,
+    protocolClass,
+    accountTypeLabel: 'Test',
+    accountAddress: ('0x' + '00'.repeat(20)) as `0x${string}`,
+    userOpHash: ('0x' + '00'.repeat(32)) as `0x${string}`,
+    stages: {
+      submit: stageMs.submit != null ? mk(stageMs.submit) : notObserved,
+      preconf: stageMs.preconf != null ? mk(stageMs.preconf) : notObserved,
+      canonical: stageMs.canonical != null ? mk(stageMs.canonical) : notObserved,
+      providerReceipt: stageMs.providerReceipt != null ? mk(stageMs.providerReceipt) : notObserved,
+      ...(stageMs.prepare != null && { prepare: mk(stageMs.prepare) }),
+      ...(stageMs.send != null && { send: mk(stageMs.send) }),
+    },
+    blockPositions: {},
+    error: undefined,
+  }
+}
+
+// A failed RunRecord (submit failed) — excluded from the histogram but counted
+// in attempts/failures counters.
+function makeFailedRecord(
+  provider: string,
+  protocolClass: RunRecord['protocolClass'],
+  runIndex = 0,
+): RunRecord {
+  const notObserved: Stage = { status: 'not-observed' }
+  return {
+    provider,
+    runIndex,
+    protocolClass,
+    accountTypeLabel: 'Test',
+    accountAddress: ('0x' + '00'.repeat(20)) as `0x${string}`,
+    userOpHash: ('0x' + '00'.repeat(32)) as `0x${string}`,
+    stages: {
+      submit: { status: 'failed', reason: 'bundler offline' },
+      preconf: notObserved,
+      canonical: notObserved,
+      providerReceipt: notObserved,
+    },
+    blockPositions: {},
+    error: 'bundler offline',
+  }
+}
+
 function makeProviderResult(
   providerId: string,
   protocolClass: string,
-  runCount: number,
-  failureCount: number,
-  stagesPresent: boolean,
+  records: RunRecord[],
+  failureCount = records.filter(r => r.error || r.stages.submit.status !== 'ok').length,
 ): ProviderRunResult {
   return {
     row: {
@@ -44,21 +99,17 @@ function makeProviderResult(
       runnable: true,
       missingEnv: [],
     },
-    records: [],
+    records,
     metrics: {
       provider: providerId,
       protocolClass: protocolClass as never,
       accountTypeLabel: 'Test',
-      runCount,
+      runCount: records.length,
       failureCount,
-      stages: stagesPresent
-        ? {
-            submit: { median: 100, p95: 200, p99: 250, count: runCount - failureCount },
-            canonical: { median: 2000, p95: 3000, p99: 3500, count: runCount - failureCount },
-            preconf: undefined,
-            providerReceipt: undefined,
-          }
-        : { submit: undefined, canonical: undefined, preconf: undefined, providerReceipt: undefined },
+      // `pm.stages` is only consumed by logRunResults now; emitRunMetrics reads
+      // records directly. Keep it empty/undefined to prove emitRunMetrics does not
+      // depend on pre-aggregated stage metrics.
+      stages: { submit: undefined, preconf: undefined, canonical: undefined, providerReceipt: undefined },
     },
   }
 }
@@ -70,52 +121,58 @@ function mockGridRunner(results: ProviderRunResult[]) {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('runOnce', () => {
-  it('sets latency gauges with correct label values for each populated stage', async () => {
+  it('observes per-attempt stage latencies into the histogram with correct labels', async () => {
     const metrics = makeMetrics()
-    const results = [makeProviderResult('alchemy-light-account', '4337-bundler', 5, 0, true)]
-    const runner = mockGridRunner(results)
-
-    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: BASE_ENV })
-
-    expect(runner).toHaveBeenCalledTimes(1)
-
-    const p50Entry = (await metrics.stageLatencyP50.get()).values.find(v =>
-      v.labels['provider_id'] === 'alchemy-light-account' &&
-      v.labels['stage'] === 'submit' &&
-      v.labels['network'] === 'base-mainnet',
-    )
-    expect(p50Entry?.value).toBe(100)
-
-    const p95Entry = (await metrics.stageLatencyP95.get()).values.find(v =>
-      v.labels['stage'] === 'submit',
-    )
-    expect(p95Entry?.value).toBe(200)
-
-    const p99Entry = (await metrics.stageLatencyP99.get()).values.find(v =>
-      v.labels['stage'] === 'submit',
-    )
-    expect(p99Entry?.value).toBe(250)
-  })
-
-  it('sets success rate, sample count, and failure count gauges', async () => {
-    const metrics = makeMetrics()
-    const results = [makeProviderResult('alchemy-light-account', '4337-bundler', 10, 2, true)]
+    const records = [
+      makeRecord('alchemy-light-account', '4337-bundler', { submit: 100, canonical: 2000 }, 0),
+      makeRecord('alchemy-light-account', '4337-bundler', { submit: 150, canonical: 2100 }, 1),
+    ]
+    const results = [makeProviderResult('alchemy-light-account', '4337-bundler', records, 0)]
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
 
-    const rateEntry = (await metrics.successRate.get()).values.find(v => v.labels['provider_id'] === 'alchemy-light-account')
-    expect(rateEntry?.value).toBe(0.8)
+    const agg = await metrics.stageLatency.get()
+    const submitCount = agg.values.find(v =>
+      v.metricName === 'txe_bench_stage_latency_seconds_count' &&
+      v.labels['provider_id'] === 'alchemy-light-account' &&
+      v.labels['stage'] === 'submit',
+    )
+    const submitSum = agg.values.find(v =>
+      v.metricName === 'txe_bench_stage_latency_seconds_sum' &&
+      v.labels['stage'] === 'submit',
+    )
+    expect(submitCount?.value).toBe(2)
+    // ms → seconds: (100 + 150) / 1000 = 0.25
+    expect(submitSum?.value).toBeCloseTo(0.25, 6)
 
-    const countEntry = (await metrics.sampleCount.get()).values.find(v => v.labels['provider_id'] === 'alchemy-light-account')
-    expect(countEntry?.value).toBe(10)
+    const canonicalSum = agg.values.find(v =>
+      v.metricName === 'txe_bench_stage_latency_seconds_sum' &&
+      v.labels['stage'] === 'canonical',
+    )
+    expect(canonicalSum?.value).toBeCloseTo(4.1, 6)
+  })
 
-    const failEntry = (await metrics.failureCount.get()).values.find(v => v.labels['provider_id'] === 'alchemy-light-account')
-    expect(failEntry?.value).toBe(2)
+  it('increments attempts and failures counters cumulatively', async () => {
+    const metrics = makeMetrics()
+    const records = [
+      makeRecord('alchemy-light-account', '4337-bundler', { submit: 100 }, 0),
+      makeFailedRecord('alchemy-light-account', '4337-bundler', 1),
+    ]
+    const results = [makeProviderResult('alchemy-light-account', '4337-bundler', records, 1)]
+    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
+
+    const attempts = await metrics.attemptsTotal.get()
+    const failures = await metrics.failuresTotal.get()
+    const a = attempts.values.find(v => v.labels['provider_id'] === 'alchemy-light-account')
+    const f = failures.values.find(v => v.labels['provider_id'] === 'alchemy-light-account')
+    expect(a?.value).toBe(2)
+    expect(f?.value).toBe(1)
   })
 
   it('sets last_run_timestamp_unix after a successful run', async () => {
     const metrics = makeMetrics()
     const before = Date.now() / 1000
-    const results = [makeProviderResult('alchemy-light-account', '4337-bundler', 5, 0, true)]
+    const records = [makeRecord('alchemy-light-account', '4337-bundler', { submit: 100 }, 0)]
+    const results = [makeProviderResult('alchemy-light-account', '4337-bundler', records, 0)]
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
     const after = Date.now() / 1000
 
@@ -126,38 +183,93 @@ describe('runOnce', () => {
     expect(tsEntry?.value).toBeLessThanOrEqual(after)
   })
 
-  it('does not set latency gauges when all samples failed (no zero-inflation)', async () => {
+  it('does not observe latency when all samples failed (no zero-inflation)', async () => {
     const metrics = makeMetrics()
-    const results = [makeProviderResult('alchemy-light-account', '4337-bundler', 5, 5, false)]
+    const records = [makeFailedRecord('alchemy-light-account', '4337-bundler', 0)]
+    const results = [makeProviderResult('alchemy-light-account', '4337-bundler', records, 1)]
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
 
-    const p50Values = (await metrics.stageLatencyP50.get()).values
-    expect(p50Values).toHaveLength(0)
+    const agg = await metrics.stageLatency.get()
+    expect(agg.values).toHaveLength(0)
+    // failures counter still increments
+    const f = (await metrics.failuresTotal.get()).values.find(v => v.labels['provider_id'] === 'alchemy-light-account')
+    expect(f?.value).toBe(1)
   })
 
-  it('accurately sets failure_count for a provider with some failures', async () => {
+  it('excludes failed/errored attempts from the histogram but counts them in failures', async () => {
     const metrics = makeMetrics()
-    const results = [makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', 20, 3, true)]
+    const records = [
+      makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 80, canonical: 1500 }, 0),
+      makeFailedRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', 1), // errored
+      // submit status not ok without an error string:
+      (() => {
+        const notObserved: Stage = { status: 'not-observed' }
+        return {
+          ...makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', {}, 2),
+          stages: {
+            submit: { status: 'timed-out', reason: 'timeout' },
+            preconf: notObserved,
+            canonical: notObserved,
+            providerReceipt: notObserved,
+          },
+        } as RunRecord
+      })(),
+    ]
+    const results = [makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', records, 2)]
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
 
-    const failEntry = (await metrics.failureCount.get()).values.find(v =>
-      v.labels['provider_id'] === 'alchemy-wallet-sendcalls',
+    const agg = await metrics.stageLatency.get()
+    const submitCount = agg.values.find(v =>
+      v.metricName === 'txe_bench_stage_latency_seconds_count' && v.labels['stage'] === 'submit',
     )
-    expect(failEntry?.value).toBe(3)
+    // Only the first record was successful → 1 observation
+    expect(submitCount?.value).toBe(1)
+
+    const f = (await metrics.failuresTotal.get()).values.find(v => v.labels['provider_id'] === 'alchemy-wallet-sendcalls')
+    expect(f?.value).toBe(2)
+    const a = (await metrics.attemptsTotal.get()).values.find(v => v.labels['provider_id'] === 'alchemy-wallet-sendcalls')
+    expect(a?.value).toBe(3)
   })
 
-  it('sets gauges for two providers independently', async () => {
+  it('observes latencies for two providers independently', async () => {
     const metrics = makeMetrics()
     const results = [
-      makeProviderResult('alchemy-light-account', '4337-bundler', 5, 0, true),
-      makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', 5, 0, true),
+      makeProviderResult('alchemy-light-account', '4337-bundler', [
+        makeRecord('alchemy-light-account', '4337-bundler', { submit: 100 }, 0),
+      ], 0),
+      makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', [
+        makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 200 }, 0),
+      ], 0),
     ]
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
 
-    const p50Values = (await metrics.stageLatencyP50.get()).values
-    const providers = new Set(p50Values.map(v => v.labels['provider_id']))
+    const agg = await metrics.stageLatency.get()
+    const providers = new Set(
+      agg.values
+        .filter(v => v.metricName === 'txe_bench_stage_latency_seconds_count')
+        .map(v => v.labels['provider_id']),
+    )
     expect(providers.has('alchemy-light-account')).toBe(true)
     expect(providers.has('alchemy-wallet-sendcalls')).toBe(true)
+  })
+
+  it('observes optional prepare/send stages when present (Wallet SendCalls)', async () => {
+    const metrics = makeMetrics()
+    const records = [
+      makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 90, prepare: 30, send: 50 }, 0),
+    ]
+    const results = [makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', records, 0)]
+    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
+
+    const agg = await metrics.stageLatency.get()
+    const stages = new Set(
+      agg.values
+        .filter(v => v.metricName === 'txe_bench_stage_latency_seconds_count')
+        .map(v => v.labels['stage']),
+    )
+    expect(stages.has('prepare')).toBe(true)
+    expect(stages.has('send')).toBe(true)
+    expect(stages.has('submit')).toBe(true)
   })
 
   it('catches and logs errors from the grid runner without rethrowing', async () => {
@@ -203,17 +315,26 @@ describe('runOnce', () => {
     expect(seenNetworks.sort()).toEqual(['base-mainnet', 'eth-mainnet', 'opt-mainnet'])
   })
 
-  it('pushes gauges labeled with each network independently', async () => {
+  it('pushes metrics labeled with each network independently', async () => {
     const metrics = makeMetrics()
     const runner = mock(async (config: Config) => [
-      makeProviderResult(`provider-${config.network}`, '4337-bundler', 5, 0, true),
+      makeProviderResult(
+        `provider-${config.network}`,
+        '4337-bundler',
+        [makeRecord(`provider-${config.network}`, '4337-bundler', { submit: 100 }, 0)],
+        0,
+      ),
     ])
     const env: EnvSource = { NETWORKS: 'eth-mainnet,base-mainnet' }
 
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
 
-    const p50Values = (await metrics.stageLatencyP50.get()).values
-    const networks = new Set(p50Values.map(v => v.labels['network']))
+    const agg = await metrics.stageLatency.get()
+    const networks = new Set(
+      agg.values
+        .filter(v => v.metricName === 'txe_bench_stage_latency_seconds_count')
+        .map(v => v.labels['network']),
+    )
     expect(networks.has('eth-mainnet')).toBe(true)
     expect(networks.has('base-mainnet')).toBe(true)
   })
@@ -222,15 +343,27 @@ describe('runOnce', () => {
     const metrics = makeMetrics()
     const runner = mock(async (config: Config) => {
       if (config.network === 'eth-mainnet') throw new Error('eth rpc down')
-      return [makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', 5, 0, true)]
+      return [
+        makeProviderResult(
+          'alchemy-wallet-sendcalls',
+          'wallet-sendcalls',
+          [makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 100 }, 0)],
+          0,
+        ),
+      ]
     })
     const env: EnvSource = { NETWORKS: 'eth-mainnet,base-mainnet' }
 
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
 
-    const p50Values = (await metrics.stageLatencyP50.get()).values
-    expect(p50Values.some(v => v.labels['network'] === 'base-mainnet')).toBe(true)
-    expect(p50Values.some(v => v.labels['network'] === 'eth-mainnet')).toBe(false)
+    const agg = await metrics.stageLatency.get()
+    const networks = new Set(
+      agg.values
+        .filter(v => v.metricName === 'txe_bench_stage_latency_seconds_count')
+        .map(v => v.labels['network']),
+    )
+    expect(networks.has('base-mainnet')).toBe(true)
+    expect(networks.has('eth-mainnet')).toBe(false)
   })
 
   it('defaults the neutral RPC to the Alchemy chain URL when none is configured (Alchemy-only monitoring)', async () => {
@@ -306,14 +439,15 @@ describe('runOnce', () => {
       runIndex: 0,
       protocolClass: '4337-bundler',
       accountTypeLabel: 'Modular Account v2 (BSO)',
-      accountAddress: '0x' + '00'.repeat(20) as `0x${string}`,
-      userOpHash: '0x' + '00'.repeat(32) as `0x${string}`,
+      accountAddress: ('0x' + '00'.repeat(20)) as `0x${string}`,
+      userOpHash: ('0x' + '00'.repeat(32)) as `0x${string}`,
       stages: {
         submit: { status: 'failed', reason: 'Policy does not support bundler sponsorship' },
         preconf: { status: 'not-observed' },
         canonical: { status: 'not-observed' },
         providerReceipt: { status: 'not-observed' },
       },
+      blockPositions: {},
       error: 'Policy does not support bundler sponsorship',
     }
     const result: ProviderRunResult = {

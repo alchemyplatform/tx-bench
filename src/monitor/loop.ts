@@ -189,8 +189,8 @@ function logRunResults(results: ProviderRunResult[], network: string, region: st
   }
 }
 
-function pushGauges(results: ProviderRunResult[], metrics: MonitorMetrics, network: string, region: string): void {
-  for (const { metrics: pm } of results) {
+function emitRunMetrics(results: ProviderRunResult[], metrics: MonitorMetrics, network: string, region: string): void {
+  for (const { records, metrics: pm } of results) {
     const summaryLabels = {
       protocol_class: pm.protocolClass,
       provider_id: pm.provider,
@@ -198,19 +198,20 @@ function pushGauges(results: ProviderRunResult[], metrics: MonitorMetrics, netwo
       region,
     }
 
-    metrics.sampleCount.set(summaryLabels, pm.runCount)
-    metrics.failureCount.set(summaryLabels, pm.failureCount)
-    metrics.successRate.set(
-      summaryLabels,
-      pm.runCount > 0 ? (pm.runCount - pm.failureCount) / pm.runCount : 0,
-    )
+    // Counters are cumulative across runs; Prometheus `rate()` / `increase()`
+    // derive windowed attempt counts and success rates from them.
+    metrics.attemptsTotal.inc(summaryLabels, pm.runCount)
+    metrics.failuresTotal.inc(summaryLabels, pm.failureCount)
 
-    for (const [stage, stageMetrics] of Object.entries(pm.stages)) {
-      if (!stageMetrics) continue  // no successful samples — skip to avoid zero-inflation
-      const latencyLabels = { ...summaryLabels, stage }
-      metrics.stageLatencyP50.set(latencyLabels, stageMetrics.median)
-      metrics.stageLatencyP95.set(latencyLabels, stageMetrics.p95)
-      metrics.stageLatencyP99.set(latencyLabels, stageMetrics.p99)
+    // Observe per-attempt stage latencies into the histogram. The inclusion
+    // rule mirrors `aggregateRuns` `successRecords` (no error AND submit ok) so
+    // the pooled population matches what the old percentile gauges summarized.
+    for (const rec of records) {
+      if (rec.error || rec.stages.submit.status !== 'ok') continue
+      for (const [stage, s] of Object.entries(rec.stages)) {
+        if (!s || s.ms == null) continue
+        metrics.stageLatency.observe({ ...summaryLabels, stage }, s.ms / 1000)
+      }
     }
 
     metrics.lastRunTimestampUnix.set(summaryLabels, Date.now() / 1000)
@@ -246,10 +247,10 @@ async function runOnceForNetwork(
 
   try {
     const results = await runner(config, env)
-    // Log the detailed per-provider / per-failed-run breakdown BEFORE pushing
-    // gauges so diagnostics are emitted even if gauge publishing throws.
+    // Log the detailed per-provider / per-failed-run breakdown BEFORE emitting
+    // metrics so diagnostics are emitted even if metric publishing throws.
     logRunResults(results, config.network, region)
-    pushGauges(results, metrics, config.network, region)
+    emitRunMetrics(results, metrics, config.network, region)
     console.log(JSON.stringify({ event: 'run_complete', network: config.network, region, providerCount: results.length }))
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
