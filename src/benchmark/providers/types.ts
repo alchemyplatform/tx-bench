@@ -1,6 +1,6 @@
 import type { Config } from '../config.js'
 import type { ProtocolClass } from '../contracts.js'
-import type { CanonicalResult } from '../oracle/canonical.js'
+import type { CanonicalObserver, CanonicalResult } from '../oracle/canonical.js'
 
 export type SponsoredResult = {
   userOpHash: `0x${string}`
@@ -22,6 +22,9 @@ export type SponsoredResult = {
 
 export interface AccountClient {
   sendSponsored(): Promise<SponsoredResult>
+  // Adapter-owned observers preserve provider-specific canonical semantics and
+  // keep downstream observation outside the timed submission operation.
+  readonly canonicalObserver?: CanonicalObserver
   // Optional: called once after buildAccountClient and before the timed loop to
   // ensure the account is deployed on-chain (e.g. stable-owner self-bootstrap).
   // When absent, the service skips it. Excluded from all metrics.

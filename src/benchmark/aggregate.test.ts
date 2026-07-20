@@ -212,3 +212,40 @@ describe('aggregateRuns — prepare/send stages', () => {
     expect(metrics.stages.send).toBeUndefined()
   })
 })
+
+describe('aggregateRuns — partial success', () => {
+  it('includes every successful stage even when a later canonical observer failed', () => {
+    const record: RunRecord = {
+      provider: 'alchemy-wallet-sendcalls',
+      runIndex: 0,
+      protocolClass: 'wallet-sendcalls',
+      accountTypeLabel: 'Smart Wallet',
+      accountAddress: ('0x' + '11'.repeat(20)) as `0x${string}`,
+      userOpHash: ('0x' + '22'.repeat(32)) as `0x${string}`,
+      acceptedAtMs: 100,
+      stages: {
+        prepare: { status: 'ok', ms: 40 },
+        send: { status: 'ok', ms: 20 },
+        submit: { status: 'ok', ms: 60 },
+        preconf: { status: 'not-observed' },
+        canonical: { status: 'observer-error', reason: 'status API unavailable' },
+        providerReceipt: { status: 'not-observed' },
+      },
+      blockPositions: {},
+      error: 'status API unavailable',
+    }
+
+    const metrics = aggregateRuns(
+      'alchemy-wallet-sendcalls',
+      'wallet-sendcalls',
+      'Smart Wallet',
+      [record],
+    )
+
+    expect(metrics.failureCount).toBe(0)
+    expect(metrics.stages.prepare?.count).toBe(1)
+    expect(metrics.stages.send?.count).toBe(1)
+    expect(metrics.stages.submit?.count).toBe(1)
+    expect(metrics.stages.canonical).toBeUndefined()
+  })
+})

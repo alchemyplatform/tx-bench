@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, mock } from 'bun:test'
 import { runBenchmarkGrid, withTimeout, type ProviderEntry } from './service'
 import type { Config } from './config'
 import type { CanonicalOracle } from './oracle/canonical'
@@ -23,7 +23,7 @@ const CONFIG: Config = {
 
 const SINGLE_RUN_CONFIG: Config = { ...CONFIG, runCount: 1 }
 
-function makeRow(id: string, protocolClass: '4337-bundler' | 'intent-relay' = '4337-bundler'): ProviderRow {
+function makeRow(id: string, protocolClass: '4337-bundler' | 'intent-relay' | 'wallet-sendcalls' = '4337-bundler'): ProviderRow {
   return { id, label: id, protocolClass, accountTypeLabel: 'Test Account', requiredEnv: [], runnable: true, missingEnv: [] }
 }
 
@@ -147,6 +147,121 @@ describe('runBenchmarkGrid — per-provider error isolation', () => {
     expect(alchemyResult.metrics.failureCount).toBe(0)
     expect(pimlicoResult.metrics.failureCount).toBe(3)
     expect(pimlicoResult.records[0].stages.submit.status).toBe('failed')
+  })
+})
+
+describe('runBenchmarkGrid — accepted submission lifecycle', () => {
+  it('uses an adapter-owned canonical observer without touching the fallback oracle', async () => {
+    const observerWatch = mock(async () => ({
+      status: 'timed-out' as const,
+      observation: {
+        api: 'eth_getUserOperationReceipt' as const,
+        pollCount: 3,
+      },
+    }))
+    const adapter: ProviderAdapter = {
+      id: 'alchemy-mav2-bso',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          canonicalObserver: {
+            api: 'eth_getUserOperationReceipt' as const,
+            watch: observerWatch,
+          },
+          async sendSponsored() {
+            return {
+              userOpHash: ('0x' + '12'.repeat(32)) as `0x${string}`,
+              protocolClass: '4337-bundler' as const,
+              submitMs: 125,
+              acceptedAtMs: 500,
+              accountAddress: ('0x' + '34'.repeat(20)) as `0x${string}`,
+            }
+          },
+        }
+      },
+    }
+    const fallbackGetBlock = mock(async () => { throw new Error('fallback getBlockNumber must not run') })
+    const fallbackWatch = mock(async () => { throw new Error('fallback watch must not run') })
+    const fallback: CanonicalOracle = {
+      getBlockNumber: fallbackGetBlock,
+      watch: fallbackWatch,
+      close() {},
+    }
+
+    const [result] = await runBenchmarkGrid(
+      SINGLE_RUN_CONFIG,
+      [{ row: makeRow('alchemy-mav2-bso'), adapter }],
+      fallback,
+      MOCK_FLASHBLOCK,
+    )
+
+    expect(fallbackGetBlock).not.toHaveBeenCalled()
+    expect(fallbackWatch).not.toHaveBeenCalled()
+    expect(observerWatch).toHaveBeenCalledWith(('0x' + '12'.repeat(32)), 10_000)
+    expect(result.records[0].stages.submit).toEqual({ status: 'ok', ms: 125 })
+    expect(result.records[0].stages.canonical.status).toBe('timed-out')
+    expect(result.records[0].acceptedAtMs).toBe(500)
+  })
+
+  it('keeps accepted timings and redacts credentials when an owned observer rejects', async () => {
+    const apiKey = 'alchemy-secret-api-key'
+    const keyedUrl = `https://base-mainnet.g.alchemy.com/v2/${apiKey}`
+    const config: Config = {
+      ...SINGLE_RUN_CONFIG,
+      ownerPrivateKey: TEST_OWNER_KEY,
+      providers: {
+        ...SINGLE_RUN_CONFIG.providers,
+        alchemy: { ...SINGLE_RUN_CONFIG.providers.alchemy!, apiKey },
+      },
+    }
+    const adapter: ProviderAdapter = {
+      id: 'alchemy-wallet-sendcalls',
+      protocolClass: 'wallet-sendcalls',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          canonicalObserver: {
+            api: 'wallet_getCallsStatus' as const,
+            async watch() {
+              throw new Error(`request ${keyedUrl} failed for ${TEST_OWNER_KEY}`)
+            },
+          },
+          async sendSponsored() {
+            return {
+              userOpHash: ('0x' + '56'.repeat(32)) as `0x${string}`,
+              protocolClass: 'wallet-sendcalls' as const,
+              submitMs: 80,
+              prepareMs: 50,
+              sendMs: 30,
+              acceptedAtMs: 1_000,
+              accountAddress: ('0x' + '78'.repeat(20)) as `0x${string}`,
+            }
+          },
+        }
+      },
+    }
+
+    const [result] = await runBenchmarkGrid(
+      config,
+      [{ row: makeRow('alchemy-wallet-sendcalls', 'wallet-sendcalls'), adapter }],
+      makeMockCanonical(),
+      MOCK_FLASHBLOCK,
+    )
+    const record = result.records[0]
+
+    expect(record.stages.prepare).toEqual({ status: 'ok', ms: 50 })
+    expect(record.stages.send).toEqual({ status: 'ok', ms: 30 })
+    expect(record.stages.submit).toEqual({ status: 'ok', ms: 80 })
+    expect(record.stages.canonical.status).toBe('observer-error')
+    expect(record.stages.canonical.reason).toContain('[REDACTED_ALCHEMY_URL]')
+    expect(record.stages.canonical.reason).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+    expect(record.stages.canonical.reason).not.toContain(apiKey)
+    expect(record.stages.canonical.reason).not.toContain(TEST_OWNER_KEY)
+    expect(result.metrics.stages.prepare?.count).toBe(1)
+    expect(result.metrics.stages.send?.count).toBe(1)
+    expect(result.metrics.stages.submit?.count).toBe(1)
+    expect(result.metrics.stages.canonical).toBeUndefined()
   })
 })
 
