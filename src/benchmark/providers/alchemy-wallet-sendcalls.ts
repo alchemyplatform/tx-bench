@@ -1,10 +1,12 @@
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import { createPublicClient, http } from 'viem'
+import { createPublicClient } from 'viem'
 import type { Chain } from 'viem'
 import { createSmartWalletClient, alchemyWalletTransport } from '@alchemy/wallet-apis'
 import type { Config } from '../config.js'
 import type { AccountClient, ProviderAdapter, SponsoredResult } from './types.js'
-import type { CanonicalResult } from '../oracle/canonical.js'
+import type { CanonicalObserver, CanonicalResult } from '../oracle/canonical.js'
+import { isRetryableObserverError, pollObserver } from '../oracle/polling.js'
+import { serializeErrorRedacted } from '../serialize.js'
 import { resolveChain } from '../chains.js'
 
 // ── Dependency types (injectable for testing) ─────────────────────────────────
@@ -14,6 +16,23 @@ type KeyGen = typeof generatePrivateKey
 type ChainResolver = (network: string) => Chain
 type GetCodeFn = (address: `0x${string}`) => Promise<string | undefined>
 type SendSetupOpFn = (signer: ReturnType<typeof privateKeyToAccount>) => Promise<void>
+type ObserverNow = () => number
+type ObserverSleep = (ms: number) => Promise<void>
+
+type WalletCallsStatusResponse = {
+  status: number
+  receipts?: Array<{
+    blockNumber?: bigint | string | null
+    transactionHash?: `0x${string}` | null
+    [key: string]: unknown
+  }>
+  [key: string]: unknown
+}
+
+type StatusRequest = (request: {
+  method: 'wallet_getCallsStatus'
+  params: readonly [`0x${string}`]
+}) => Promise<WalletCallsStatusResponse>
 
 // ── Bootstrap polling config ──────────────────────────────────────────────────
 
@@ -27,6 +46,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
   private readonly stableOwner: ReturnType<typeof privateKeyToAccount> | undefined
   // ensureDeployed is only attached when stableOwner is set (see constructor).
   readonly ensureDeployed?: () => Promise<void>
+  readonly canonicalObserver: CanonicalObserver
 
   constructor(
     private readonly apiKey: string,
@@ -39,6 +59,9 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     ownerPrivateKey?: `0x${string}`,
     private readonly getCodeFn?: GetCodeFn,
     private readonly sendSetupOpFn?: SendSetupOpFn,
+    private readonly injectedStatusRequest?: StatusRequest,
+    private readonly observerNow?: ObserverNow,
+    private readonly observerSleep?: ObserverSleep,
   ) {
     if (ownerPrivateKey) {
       this.stableOwner = privateKeyToAccount(ownerPrivateKey)
@@ -46,6 +69,77 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
       // `typeof client.ensureDeployed !== 'function'` check skips it in random mode.
       this.ensureDeployed = this._ensureDeployed.bind(this)
     }
+    this.canonicalObserver = {
+      api: 'wallet_getCallsStatus',
+      watch: (identifier, timeoutMs) => this._watchCanonical(identifier, timeoutMs, ownerPrivateKey),
+    }
+  }
+
+  private async _watchCanonical(
+    callId: `0x${string}`,
+    timeoutMs: number,
+    ownerPrivateKey?: `0x${string}`,
+  ): Promise<CanonicalResult> {
+    const request = this.injectedStatusRequest ?? this._createStatusRequest()
+    const polled = await pollObserver({
+      request: () => request({ method: 'wallet_getCallsStatus', params: [callId] }),
+      isPending: response => response.status >= 100 && response.status < 200,
+      timeoutMs,
+      isRetryableError: isRetryableObserverError,
+      now: this.observerNow,
+      sleep: this.observerSleep,
+    })
+    const observation = {
+      api: 'wallet_getCallsStatus' as const,
+      pollCount: polled.pollCount,
+    }
+
+    if (polled.kind === 'timed-out') {
+      return { status: 'timed-out', observation }
+    }
+    if (polled.kind === 'error') {
+      const serialized = serializeErrorRedacted(polled.error, ownerPrivateKey, [this.apiKey])
+      return {
+        status: 'observer-error',
+        reason: serialized.message,
+        observation: {
+          ...observation,
+          errorClass: polled.error instanceof Error ? polled.error.name : typeof polled.error,
+        },
+      }
+    }
+
+    const response = polled.value
+    const terminalStatus = String(response.status)
+    if (response.status === 200) {
+      const receipt = response.receipts?.[0]
+      return {
+        status: 'ok',
+        ...(receipt?.blockNumber != null ? { blockNumber: BigInt(receipt.blockNumber) } : {}),
+        ...(receipt?.transactionHash ? { txHash: receipt.transactionHash } : {}),
+        tMs: polled.observedAtMs,
+        observation: { ...observation, terminalStatus },
+      }
+    }
+    if (response.status >= 400 && response.status < 700) {
+      return {
+        status: 'integrity-fail',
+        reason: `wallet_getCallsStatus returned terminal status ${response.status}`,
+        observation: { ...observation, terminalStatus },
+      }
+    }
+    return {
+      status: 'observer-error',
+      reason: `wallet_getCallsStatus returned unsupported status ${response.status}`,
+      observation: { ...observation, terminalStatus, errorClass: 'UnsupportedStatus' },
+    }
+  }
+
+  private _createStatusRequest(): StatusRequest {
+    const chain = this.chainResolver(this.network)
+    const transport = alchemyWalletTransport({ apiKey: this.apiKey })
+    const request = transport({ chain }).request
+    return async (statusRequest) => request(statusRequest as never) as Promise<WalletCallsStatusResponse>
   }
 
   // ── Stable-owner self-bootstrap ─────────────────────────────────────────────
@@ -90,7 +184,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
   private _makeGetCode(chain: Chain): GetCodeFn {
     const publicClient = createPublicClient({
       chain,
-      transport: http(`https://${this.network}.g.alchemy.com/v2/${this.apiKey}`),
+      transport: alchemyWalletTransport({ apiKey: this.apiKey }),
     })
     return (addr) => publicClient.getCode({ address: addr })
   }
@@ -174,32 +268,6 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     // that hardcode `submit` keep working (U2 compatibility-total design).
     const submitMs = prepareMs + sendMs
 
-    // ── Canonical: waitForCallsStatus polls until the tx is mined ─────────────
-    const status = await client.waitForCallsStatus({
-      id: callId,
-      timeout: this.canonicalTimeoutMs,
-    })
-    const tCanonical = performance.now()
-
-    const receipt = status.receipts?.[0]
-    let inlineCanonical: CanonicalResult
-    if (status.status === 'success' && receipt) {
-      inlineCanonical = {
-        status: 'ok',
-        blockNumber: receipt.blockNumber,
-        txHash: receipt.transactionHash,
-        tMs: tCanonical,
-      }
-    } else if (status.status === 'failure') {
-      inlineCanonical = {
-        status: 'integrity-fail',
-        blockNumber: receipt?.blockNumber ?? 0n,
-        reason: 'wallet_sendCalls bundle failed',
-      }
-    } else {
-      inlineCanonical = { status: 'timed-out' }
-    }
-
     return {
       userOpHash: callId as `0x${string}`,
       protocolClass: 'wallet-sendcalls',
@@ -208,7 +276,6 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
       sendMs,
       acceptedAtMs,
       accountAddress: signer.address,
-      inlineCanonical,
     }
   }
 }
@@ -225,12 +292,18 @@ export function createAlchemyWalletSendCallsAdapter(deps?: {
   chainResolver?: ChainResolver
   getCodeFn?: GetCodeFn
   sendSetupOpFn?: SendSetupOpFn
+  statusRequest?: StatusRequest
+  observerNow?: ObserverNow
+  observerSleep?: ObserverSleep
 }): ProviderAdapter {
   const createClient = deps?.createClient ?? createSmartWalletClient
   const genKey = deps?.generateKey ?? generatePrivateKey
   const chainResolver = deps?.chainResolver ?? resolveChain
   const getCodeFn = deps?.getCodeFn
   const sendSetupOpFn = deps?.sendSetupOpFn
+  const statusRequest = deps?.statusRequest
+  const observerNow = deps?.observerNow
+  const observerSleep = deps?.observerSleep
 
   return {
     id: 'alchemy-wallet-sendcalls',
@@ -253,6 +326,9 @@ export function createAlchemyWalletSendCallsAdapter(deps?: {
         config.ownerPrivateKey,
         getCodeFn,
         sendSetupOpFn,
+        statusRequest,
+        observerNow,
+        observerSleep,
       )
     },
   }

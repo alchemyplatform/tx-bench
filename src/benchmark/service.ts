@@ -120,9 +120,7 @@ export async function runBenchmarkGrid(
 
           const canonicalPromise: Promise<CanonicalResult> = client.canonicalObserver
             ? client.canonicalObserver.watch(sponsored.userOpHash, config.timeouts.canonicalMs)
-            : sponsored.inlineCanonical
-              ? Promise.resolve(sponsored.inlineCanonical)
-              : canonicalOracle.watch(sponsored.userOpHash, fromBlock!, config.timeouts.canonicalMs)
+            : canonicalOracle.watch(sponsored.userOpHash, fromBlock!, config.timeouts.canonicalMs)
 
           // Neither canonical nor preconfirmation observation is allowed to
           // rewrite an already-accepted submission as submit-failed.

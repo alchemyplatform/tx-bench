@@ -128,10 +128,10 @@ export function buildRunRecord(input: RunInput): RunRecord {
     }
   }
 
-  if (canonical.status === 'ok') {
+  if (canonical.status === 'ok' && canonical.blockNumber != null) {
     blockPositions.canonical = {
       blockNumber: canonical.blockNumber,
-      txHash: canonical.txHash,
+      ...(canonical.txHash ? { txHash: canonical.txHash } : {}),
     }
   }
 

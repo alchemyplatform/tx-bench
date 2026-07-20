@@ -21,9 +21,9 @@ type CanonicalResultBase = {
 }
 
 export type CanonicalResult =
-  | (CanonicalResultBase & { status: 'ok'; blockNumber: bigint; txHash: `0x${string}`; tMs: number })
+  | (CanonicalResultBase & { status: 'ok'; blockNumber?: bigint; txHash?: `0x${string}`; tMs: number })
   | (CanonicalResultBase & { status: 'timed-out' })
-  | (CanonicalResultBase & { status: 'integrity-fail'; blockNumber: bigint; reason: string })
+  | (CanonicalResultBase & { status: 'integrity-fail'; blockNumber?: bigint; reason: string })
   | (CanonicalResultBase & { status: 'observer-error'; reason: string })
 
 export interface CanonicalObserver {

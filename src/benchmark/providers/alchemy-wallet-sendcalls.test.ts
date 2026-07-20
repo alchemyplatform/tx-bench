@@ -64,6 +64,131 @@ describe('alchemyWalletSendCallsAdapter — buildAccountClient', () => {
   })
 })
 
+describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () => {
+  const callId = ('0x' + '12'.repeat(32)) as `0x${string}`
+  const txHash = ('0x' + '34'.repeat(32)) as `0x${string}`
+
+  it('polls the exact accepted call ID from pending 100 to success 200', async () => {
+    const calls: Array<{ method: string; params: readonly unknown[] }> = []
+    const responses = [
+      { status: 100 },
+      { status: 200, receipts: [{ blockNumber: '0x64', transactionHash: txHash }] },
+    ]
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      statusRequest: async (request) => {
+        calls.push(request)
+        return responses.shift()!
+      },
+      observerSleep: async () => {},
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.canonicalObserver!.watch(callId, 10_000)
+
+    expect(calls).toHaveLength(2)
+    expect(calls.every(call => call.method === 'wallet_getCallsStatus')).toBe(true)
+    expect(calls.every(call => call.params[0] === callId)).toBe(true)
+    expect(result).toEqual({
+      status: 'ok',
+      blockNumber: 100n,
+      txHash,
+      tMs: expect.any(Number),
+      observation: {
+        api: 'wallet_getCallsStatus',
+        pollCount: 2,
+        terminalStatus: '200',
+      },
+    })
+  })
+
+  for (const status of [400, 500, 600]) {
+    it(`maps terminal status ${status} to canonical failure`, async () => {
+      const adapter = createAlchemyWalletSendCallsAdapter({
+        statusRequest: async () => ({ status }),
+      })
+      const client = await adapter.buildAccountClient(makeConfig())
+
+      const result = await client.canonicalObserver!.watch(callId, 10_000)
+
+      expect(result.status).toBe('integrity-fail')
+      expect(result.observation).toEqual({
+        api: 'wallet_getCallsStatus',
+        pollCount: 1,
+        terminalStatus: String(status),
+      })
+    })
+  }
+
+  it('times out independently without changing the accepted submission', async () => {
+    let now = 0
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      statusRequest: async () => ({ status: 100 }),
+      observerNow: () => now,
+      observerSleep: async (ms) => { now += ms },
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.canonicalObserver!.watch(callId, 500)
+
+    expect(result.status).toBe('timed-out')
+    expect(result.observation?.pollCount).toBe(3)
+  })
+
+  it('does not infer success from receipts when the status code is terminal', async () => {
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      statusRequest: async () => ({
+        status: 500,
+        receipts: [{ blockNumber: '0x65', transactionHash: txHash, status: '0x1' }],
+      }),
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.canonicalObserver!.watch(callId, 10_000)
+
+    expect(result.status).toBe('integrity-fail')
+    expect(result.observation?.terminalStatus).toBe('500')
+  })
+
+  it('treats status 200 as success even when no receipt evidence is present', async () => {
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      statusRequest: async () => ({ status: 200 }),
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.canonicalObserver!.watch(callId, 10_000)
+
+    expect(result.status).toBe('ok')
+    expect(result.observation?.terminalStatus).toBe('200')
+    if (result.status === 'ok') {
+      expect(result.blockNumber).toBeUndefined()
+      expect(result.txHash).toBeUndefined()
+    }
+  })
+
+  it('maps a terminal request rejection to a redacted observer error', async () => {
+    const config = makeConfig()
+    const apiKey = config.providers.alchemy!.apiKey
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      statusRequest: async () => {
+        throw Object.assign(
+          new Error(`request https://api.g.alchemy.com/v2/${apiKey} was unauthorized`),
+          { status: 401 },
+        )
+      },
+    })
+    const client = await adapter.buildAccountClient(config)
+
+    const result = await client.canonicalObserver!.watch(callId, 10_000)
+
+    expect(result.status).toBe('observer-error')
+    if (result.status === 'observer-error') {
+      expect(result.reason).toContain('[REDACTED_ALCHEMY_URL]')
+      expect(result.reason).not.toContain(apiKey)
+    }
+    expect(result.observation?.pollCount).toBe(1)
+  })
+})
+
 describe('alchemyWalletSendCallsAdapter — network-aware chain resolution', () => {
   it('uses the Ethereum chain (id 1) when config.network = eth-mainnet', async () => {
     const chainCaptures: Chain[] = []
@@ -131,7 +256,8 @@ describe('alchemyWalletSendCallsAdapter — network-aware chain resolution', () 
     expect(result.userOpHash).toMatch(/^0x[0-9a-f]+$/)
     expect(result.submitMs).toBeGreaterThanOrEqual(0)
     expect(result.accountAddress).toMatch(/^0x[0-9a-fA-F]{40}$/)
-    expect(result.inlineCanonical).toBeDefined()
+    expect('inlineCanonical' in result).toBe(false)
+    expect(client.canonicalObserver?.api).toBe('wallet_getCallsStatus')
     expect(chainCaptures[0].id).toBe(8453)
   })
 })
@@ -355,15 +481,12 @@ describe('alchemyWalletSendCallsAdapter — ensureDeployed (self-bootstrap)', ()
     await expect(client.ensureDeployed!()).rejects.toThrow('eth_getCode failed')
   })
 
-  it('integration: inlineCanonical is set in sendSponsored so service skips neutral oracle', async () => {
+  it('integration: sendSponsored returns accepted state before canonical observation', async () => {
     const mockClient = {
       prepareCalls: async () => ({ type: 'user-operation-v060', data: {} }),
       signPreparedCalls: async () => ({ type: 'user-operation-v060', data: {}, signature: { type: 'secp256k1', data: '0x' + 'f'.repeat(130) } }),
       sendPreparedCalls: async () => ({ id: '0x' + '1'.repeat(64) }),
-      waitForCallsStatus: async () => ({
-        status: 'success' as const,
-        receipts: [{ blockNumber: 100n, transactionHash: '0x' + '2'.repeat(64) }],
-      }),
+      waitForCallsStatus: async () => { throw new Error('must not wait during submission') },
     }
     const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
 
@@ -375,9 +498,9 @@ describe('alchemyWalletSendCallsAdapter — ensureDeployed (self-bootstrap)', ()
 
     const result = await client.sendSponsored()
 
-    expect(result.inlineCanonical).toBeDefined()
-    expect(result.inlineCanonical!.status).toBe('ok')
-    expect((result.inlineCanonical as { blockNumber: bigint }).blockNumber).toBe(100n)
+    expect('inlineCanonical' in result).toBe(false)
+    expect(result.acceptedAtMs).toBeDefined()
+    expect(client.canonicalObserver?.api).toBe('wallet_getCallsStatus')
   })
 
   it('Covers AE4 (R6): sendSponsored failure propagates (no auto recovery)', async () => {
@@ -472,7 +595,7 @@ describe('alchemyWalletSendCallsAdapter — prepare/send stage refactor', () => 
     const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
     await client.sendSponsored()
 
-    expect(callOrder).toEqual(['prepareCalls', 'signPreparedCalls', 'sendPreparedCalls', 'waitForCallsStatus'])
+    expect(callOrder).toEqual(['prepareCalls', 'signPreparedCalls', 'sendPreparedCalls'])
   })
 
   it('happy path: prepareMs covers prepare+sign, sendMs covers send, submitMs = prepareMs + sendMs', async () => {
@@ -542,7 +665,7 @@ describe('alchemyWalletSendCallsAdapter — prepare/send stage refactor', () => 
     expect(callOrder).not.toContain('waitForCallsStatus')
   })
 
-  it('integration: inlineCanonical is still set so service skips neutral oracle', async () => {
+  it('integration: canonical observation is adapter-owned and outside submission', async () => {
     const { mockClient } = makePrepareSendMock()
     const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
 
@@ -553,18 +676,15 @@ describe('alchemyWalletSendCallsAdapter — prepare/send stage refactor', () => 
     const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
     const result = await client.sendSponsored()
 
-    expect(result.inlineCanonical).toBeDefined()
-    expect(result.inlineCanonical!.status).toBe('ok')
-    expect((result.inlineCanonical as { blockNumber: bigint }).blockNumber).toBe(100n)
+    expect('inlineCanonical' in result).toBe(false)
+    expect(client.canonicalObserver?.api).toBe('wallet_getCallsStatus')
   })
 
-  it('edge case: sendPreparedCalls succeeds but waitForCallsStatus returns failure → integrity-fail', async () => {
-    const { mockClient } = makePrepareSendMock({
-      waitForCallsStatusResult: {
-        status: 'failure' as const,
-        receipts: [{ blockNumber: 99n, transactionHash: '0x' + '3'.repeat(64) }],
-      },
-    })
+  it('sendPreparedCalls success is not rewritten by the SDK status helper', async () => {
+    const { mockClient, callOrder } = makePrepareSendMock()
+    mockClient.waitForCallsStatus = async () => {
+      throw new Error('SDK status helper must not be called')
+    }
     const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
 
     const adapter = createAlchemyWalletSendCallsAdapter({
@@ -572,10 +692,8 @@ describe('alchemyWalletSendCallsAdapter — prepare/send stage refactor', () => 
       generateKey: () => ('0x' + 'cd'.repeat(32)) as `0x${string}`,
     })
     const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
-    const result = await client.sendSponsored()
-
-    expect(result.inlineCanonical).toBeDefined()
-    expect(result.inlineCanonical!.status).toBe('integrity-fail')
+    await expect(client.sendSponsored()).resolves.toBeDefined()
+    expect(callOrder).not.toContain('waitForCallsStatus')
   })
 
   it('integration: acceptedAtMs is set to the post-sendPreparedCalls timestamp', async () => {
