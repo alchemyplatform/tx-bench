@@ -48,6 +48,10 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
   // ensureDeployed is only attached when stableOwner is set (see constructor).
   readonly ensureDeployed?: () => Promise<void>
   readonly canonicalObserver: CanonicalObserver
+  // Memoized receipt request — built once per client instance instead of per
+  // _watchCanonical call, to avoid repeated transport/client allocation across
+  // a 20-run monitoring cycle.
+  private receiptRequestFn?: ReceiptRequest
 
   constructor(
     private readonly apiKey: string,
@@ -80,7 +84,7 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
     timeoutMs: number,
     ownerPrivateKey?: `0x${string}`,
   ): Promise<CanonicalResult> {
-    const request = this.injectedReceiptRequest ?? this._createReceiptRequest()
+    const request = this.injectedReceiptRequest ?? this._resolveReceiptRequest()
     const polled = await pollObserver({
       request: () => request({
         method: 'eth_getUserOperationReceipt',
@@ -118,23 +122,45 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
     if (response == null) {
       return { status: 'timed-out', observation }
     }
-    const blockNumber = response.receipt?.blockNumber
-    if (!response.success) {
+    // Field extraction / BigInt conversion can throw on a malformed receipt
+    // (e.g. missing blockNumber). Wrap it so the real pollCount is preserved —
+    // an uncaught throw here would propagate to service.ts canonicalPromise.catch
+    // and be recorded with pollCount: 0, losing the polls already incurred.
+    try {
+      const blockNumber = response.receipt?.blockNumber
+      if (!response.success) {
+        return {
+          status: 'integrity-fail',
+          blockNumber: blockNumber == null ? 0n : BigInt(blockNumber),
+          reason: 'eth_getUserOperationReceipt returned success=false',
+          observation: { ...observation, terminalStatus: 'failure' },
+        }
+      }
+
       return {
-        status: 'integrity-fail',
-        blockNumber: blockNumber == null ? 0n : BigInt(blockNumber),
-        reason: 'eth_getUserOperationReceipt returned success=false',
-        observation: { ...observation, terminalStatus: 'failure' },
+        status: 'ok',
+        blockNumber: BigInt(blockNumber!),
+        txHash: response.receipt!.transactionHash!,
+        tMs: polled.observedAtMs,
+        observation: { ...observation, terminalStatus: 'success' },
+      }
+    } catch (e) {
+      const serialized = serializeErrorRedacted(e, ownerPrivateKey, [this.apiKey])
+      return {
+        status: 'observer-error',
+        reason: serialized.message,
+        observation: {
+          ...observation,
+          errorClass: e instanceof Error ? e.name : typeof e,
+        },
       }
     }
+  }
 
-    return {
-      status: 'ok',
-      blockNumber: BigInt(blockNumber!),
-      txHash: response.receipt!.transactionHash!,
-      tMs: polled.observedAtMs,
-      observation: { ...observation, terminalStatus: 'success' },
-    }
+  private _resolveReceiptRequest(): ReceiptRequest {
+    if (this.receiptRequestFn) return this.receiptRequestFn
+    this.receiptRequestFn = this._createReceiptRequest()
+    return this.receiptRequestFn
   }
 
   private _createReceiptRequest(): ReceiptRequest {

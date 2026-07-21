@@ -64,6 +64,13 @@ export async function pollObserver<T>(options: PollObserverOptions<T>): Promise<
 
 export function isRetryableObserverError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false
+  // Programming / serialization / data bugs (e.g. BigInt(undefined), JSON parse
+  // failures, out-of-range conversions) are not transient transport errors —
+  // retrying them until timeout just delays a prompt observer-error and masks
+  // the real cause. Surface them immediately.
+  if (error instanceof TypeError || error instanceof SyntaxError || error instanceof RangeError) {
+    return false
+  }
   const candidate = error as { status?: unknown; statusCode?: unknown; code?: unknown }
   const status = typeof candidate.status === 'number'
     ? candidate.status
@@ -76,6 +83,8 @@ export function isRetryableObserverError(error: unknown): boolean {
   if (candidate.code === -32600 || candidate.code === -32601 || candidate.code === -32602) {
     return false
   }
-  // Transport and upstream errors often do not expose an HTTP status.
+  // Transport and upstream errors often do not expose an HTTP status. They are
+  // typically Error subclasses (HttpRequestError, RpcRequestError, etc.); the
+  // programming-error subclasses above have already been excluded.
   return true
 }

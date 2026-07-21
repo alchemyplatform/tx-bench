@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { pollObserver } from './polling'
+import { isRetryableObserverError, pollObserver } from './polling'
 
 describe('pollObserver — shared cadence', () => {
   it('polls every 250ms through 8s and caps later backoff at 2s', async () => {
@@ -38,5 +38,36 @@ describe('pollObserver — shared cadence', () => {
     })
 
     expect(result).toEqual({ kind: 'timed-out', pollCount: 1 })
+  })
+})
+
+describe('isRetryableObserverError — fallback narrowing', () => {
+  it('retries transport-style errors that carry an HTTP 5xx status', () => {
+    expect(isRetryableObserverError(Object.assign(new Error('boom'), { status: 503 }))).toBe(true)
+  })
+
+  it('retries status-less object errors that are not programming errors', () => {
+    expect(isRetryableObserverError(new Error('upstream connection reset'))).toBe(true)
+  })
+
+  it('does not retry a TypeError (serialization / data bug)', () => {
+    expect(isRetryableObserverError(new TypeError('Cannot read properties of undefined'))).toBe(false)
+  })
+
+  it('does not retry a SyntaxError (parse bug)', () => {
+    expect(isRetryableObserverError(new SyntaxError('Unexpected token'))).toBe(false)
+  })
+
+  it('does not retry a RangeError (conversion bug)', () => {
+    expect(isRetryableObserverError(new RangeError('value out of range'))).toBe(false)
+  })
+
+  it('does not retry JSON-RPC invalid request/params/method errors', () => {
+    expect(isRetryableObserverError({ code: -32602 })).toBe(false)
+  })
+
+  it('does not retry non-object errors', () => {
+    expect(isRetryableObserverError('string error')).toBe(false)
+    expect(isRetryableObserverError(null)).toBe(false)
   })
 })

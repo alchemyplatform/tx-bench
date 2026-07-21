@@ -207,6 +207,29 @@ describe('alchemyMAv2BSOAdapter — eth_getUserOperationReceipt observer', () =>
     expect(result.observation?.api).toBe('eth_getUserOperationReceipt')
     expect(result.observation?.pollCount).toBe(3)
   })
+
+  it('preserves the real pollCount when a malformed receipt throws during field extraction', async () => {
+    // success=true but blockNumber is a non-BigInt-convertible value, so
+    // BigInt(blockNumber!) throws after the poll succeeds. The error must be
+    // contained and reported as observer-error with the actual poll count,
+    // not lost as pollCount: 0 by service.ts canonicalPromise.catch.
+    const adapter = createAlchemyMAv2BSOAdapter({
+      receiptRequest: async () => ({
+        success: true,
+        receipt: { blockNumber: 'not-a-bigint', transactionHash: txHash },
+      }),
+      observerSleep: async () => {},
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.canonicalObserver!.watch(userOpHash, 10_000)
+
+    expect(result.status).toBe('observer-error')
+    expect(result.observation?.api).toBe('eth_getUserOperationReceipt')
+    expect(result.observation?.pollCount).toBe(1)
+    expect(result.observation?.errorClass).toBe('SyntaxError')
+    expect(typeof (result as { reason?: string }).reason).toBe('string')
+  })
 })
 
 describe('alchemyMAv2BSOAdapter — network-aware chain resolution', () => {
