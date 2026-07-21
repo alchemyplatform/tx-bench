@@ -359,6 +359,41 @@ describe('alchemyWalletSendCallsAdapter — stable owner key', () => {
 })
 
 describe('alchemyWalletSendCallsAdapter — ensureDeployed (self-bootstrap)', () => {
+  it('routes eth_getCode through the network-specific Alchemy node endpoint', async () => {
+    const requestedUrls: string[] = []
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input) => {
+      const url = typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+      requestedUrls.push(url)
+      return new Response(JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        result: '0xalreadydelegated',
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    try {
+      const adapter = createAlchemyWalletSendCallsAdapter({
+        createClient: makeMockCreateClient([]),
+        generateKey: () => { throw new Error('genKey should not be called') },
+      })
+      const client = await adapter.buildAccountClient(makeConfig('base-mainnet', STABLE_KEY))
+
+      await client.ensureDeployed!()
+
+      expect(requestedUrls).toEqual(['https://base-mainnet.g.alchemy.com/v2'])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('Covers AE1: delegation not set → sends one setup op, polls until delegated, then resolves', async () => {
     let getCodeCalls = 0
     let setupOpCalls = 0
