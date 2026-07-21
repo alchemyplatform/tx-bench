@@ -22,4 +22,21 @@ describe('pollObserver — shared cadence', () => {
     expect(Math.max(...sleeps.map(entry => entry.delay))).toBe(2_000)
     expect(sleeps.some(entry => entry.at >= 8_000 && entry.delay > 250)).toBe(true)
   })
+
+  it('rejects a terminal response that arrives after the deadline', async () => {
+    let now = 0
+
+    const result = await pollObserver({
+      request: async () => {
+        now = 501
+        return { status: 200 }
+      },
+      isPending: value => value.status === 100,
+      timeoutMs: 500,
+      now: () => now,
+      sleep: async () => {},
+    })
+
+    expect(result).toEqual({ kind: 'timed-out', pollCount: 1 })
+  })
 })

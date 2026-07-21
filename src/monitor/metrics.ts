@@ -18,10 +18,9 @@ export type SummaryLabels = {
 }
 export type LatencyLabels = SummaryLabels & { stage: string }
 
-// Per-attempt latency buckets in SECONDS. One exponential-ish layout spanning
-// ~5ms → 120s covers every stage (prepare ~tens of ms → canonical ~seconds) since
-// `stage` is a label on a single metric name. Densify (factor ~1.5) if a stage
-// needs finer resolution; cardinality cost is trivial at this scale.
+// Per-attempt latency buckets in seconds. Dense boundaries around the canonical
+// SLO range (1–8s) keep p95 and CDF estimates useful while the full 5ms–120s
+// span covers every stage carried by this shared histogram.
 export const LATENCY_BUCKETS_SECONDS = [
   0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75,
   1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4,

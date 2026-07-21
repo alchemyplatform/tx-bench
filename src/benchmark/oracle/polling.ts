@@ -32,7 +32,11 @@ export async function pollObserver<T>(options: PollObserverOptions<T>): Promise<
       const value = await options.request()
       lastRetryableError = undefined
       if (!options.isPending(value)) {
-        return { kind: 'value', value, pollCount, observedAtMs: now() }
+        const observedAtMs = now()
+        if (observedAtMs - startedAt >= options.timeoutMs) {
+          return { kind: 'timed-out', pollCount }
+        }
+        return { kind: 'value', value, pollCount, observedAtMs }
       }
     } catch (error) {
       if (!(options.isRetryableError?.(error) ?? false)) {

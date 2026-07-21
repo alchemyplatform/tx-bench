@@ -4,8 +4,7 @@ import { serializeErrorRedacted } from './serialize.js'
 import type { Config } from './config.js'
 import type { ProtocolClass, ProviderMetrics, ProviderRow, RunRecord } from './contracts.js'
 import type { ProviderAdapter } from './providers/types.js'
-import type { CanonicalOracle } from './oracle/canonical.js'
-import type { CanonicalResult } from './oracle/canonical.js'
+import type { CanonicalOracle, CanonicalResult } from './oracle/canonical.js'
 import type { FlashblockOracle } from './oracle/flashblocks.js'
 
 // ── Types ─────────────────────────────────────────────────────────────────────

@@ -185,7 +185,7 @@ function logRunResults(
 
     for (const rec of records) {
       const observerApi = rec.canonicalObservation?.api ?? observerApiForProvider(row.id)
-      const stages = Object.fromEntries(expectedStages(rec.protocolClass).map((stage) => {
+      const attemptStages = Object.fromEntries(expectedStages(rec.protocolClass).map((stage) => {
         const value = rec.stages[stage] ?? { status: 'not-observed' as const }
         return [stage, {
           outcome: value.status,
@@ -206,7 +206,7 @@ function logRunResults(
         poll_count: rec.canonicalObservation?.pollCount ?? 0,
         terminal_status: rec.canonicalObservation?.terminalStatus ?? null,
         error_class: rec.canonicalObservation?.errorClass ?? null,
-        stages,
+        stages: attemptStages,
       }))
 
       const failed = Object.entries(rec.stages).filter(([, s]) =>
