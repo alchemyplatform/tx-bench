@@ -9,7 +9,9 @@ import { runBenchmarkGrid, type ProviderEntry, type ProviderRunResult } from '..
 import { alchemyMAv2BSOAdapter } from '../benchmark/providers/alchemy-mav2-bso.js'
 import { alchemyWalletSendCallsAdapter } from '../benchmark/providers/alchemy-wallet-sendcalls.js'
 import type { MonitoringCredentials } from './secrets.js'
-import type { MonitorMetrics } from './metrics.js'
+import { MEASUREMENT_EPOCH, type MonitorMetrics } from './metrics.js'
+import { serializeErrorRedacted } from '../benchmark/serialize.js'
+import type { ProtocolClass, RunRecord } from '../benchmark/contracts.js'
 
 // Monitoring covers only these two adapters for now — MAv2 BSO (ERC-4337) and
 // Wallet SendCalls (EIP-7702) — per operator decision. Others can be added later.
@@ -17,14 +19,13 @@ const ALCHEMY_ADAPTERS = [alchemyMAv2BSOAdapter, alchemyWalletSendCallsAdapter]
 const NO_OP_WS = (_url: string) => ({ readyState: 3, send: () => {}, close: () => {}, onopen: null, onclose: null, onerror: null, onmessage: null })
 const MONITORING_RUN_COUNT_DEFAULT = 20
 
-// Known networks: viem chain + a neutral (non-Alchemy) public RPC default, so a
-// single task can monitor a configurable set of networks without per-network
-// secret configuration. Unknown networks fall back to mainnet/undefined below.
-const KNOWN_NETWORKS: Record<string, { chain: Chain; defaultNeutralRpcUrl: string }> = {
-  'eth-mainnet': { chain: mainnet, defaultNeutralRpcUrl: 'https://ethereum-rpc.publicnode.com' },
-  'base-mainnet': { chain: base, defaultNeutralRpcUrl: 'https://base-rpc.publicnode.com' },
-  'opt-mainnet': { chain: optimism, defaultNeutralRpcUrl: 'https://optimism-rpc.publicnode.com' },
-  'arb-mainnet': { chain: arbitrum, defaultNeutralRpcUrl: 'https://arbitrum-one-rpc.publicnode.com' },
+// Known monitoring networks. Endpoint URLs are always derived from the
+// Alchemy API key; this map only selects the viem chain definition.
+const KNOWN_NETWORKS: Record<string, Chain> = {
+  'eth-mainnet': mainnet,
+  'base-mainnet': base,
+  'opt-mainnet': optimism,
+  'arb-mainnet': arbitrum,
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -39,7 +40,7 @@ export type RunOnceOptions = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function resolveChain(network: string): Chain {
-  return KNOWN_NETWORKS[network]?.chain ?? mainnet
+  return KNOWN_NETWORKS[network] ?? mainnet
 }
 
 // NETWORKS is a comma-separated list (e.g. "base-mainnet,eth-mainnet,opt-mainnet"),
@@ -52,35 +53,24 @@ function parseNetworks(env: EnvSource): string[] {
   return networks.length > 0 ? networks : ['base-mainnet']
 }
 
-function resolveNeutralRpcUrl(
+function resolveAlchemyRpcUrl(
   network: string,
   credentials: MonitoringCredentials,
-  mergedEnv: EnvSource,
-): string | undefined {
-  // Explicit per-network or single neutral overrides win (for future
-  // mixed-provider monitoring where a truly independent node is required).
-  const explicit = credentials.NEUTRAL_RPC_URLS?.[network] ?? mergedEnv.NEUTRAL_RPC_URL
-  if (explicit) return explicit
-  // Default for Alchemy-only monitoring: use the Alchemy chain-specific URL as
-  // the neutral canonical oracle. The preflight allows this when all runnable
-  // providers are Alchemy (no contestant disadvantaged), and it is reliable for
-  // UserOperationEvent log delivery on chains where free public nodes miss logs.
-  if (credentials.ALCHEMY_API_KEY) {
-    return `https://${network}.g.alchemy.com/v2/${credentials.ALCHEMY_API_KEY}`
-  }
-  // Last resort: the built-in public neutral default for known networks.
-  return KNOWN_NETWORKS[network]?.defaultNeutralRpcUrl
+): string {
+  return `https://${network}.g.alchemy.com/v2/${credentials.ALCHEMY_API_KEY}`
 }
 
 function buildEnv(credentials: MonitoringCredentials, baseEnv: EnvSource): EnvSource {
+  const sanitizedBaseEnv = { ...baseEnv }
+  delete sanitizedBaseEnv.NEUTRAL_RPC_URL
+  delete sanitizedBaseEnv.NEUTRAL_RPC_URLS
+  delete sanitizedBaseEnv.ALCHEMY_RPC_URL
   return {
-    ...baseEnv,
+    ...sanitizedBaseEnv,
     ALCHEMY_API_KEY: credentials.ALCHEMY_API_KEY,
     ALCHEMY_POLICY_ID: credentials.ALCHEMY_POLICY_ID,
     OWNER_PRIVATE_KEY: credentials.OWNER_PRIVATE_KEY,
     ...(credentials.ALCHEMY_BSO_POLICY_ID && { ALCHEMY_BSO_POLICY_ID: credentials.ALCHEMY_BSO_POLICY_ID }),
-    ...(credentials.NEUTRAL_RPC_URL && { NEUTRAL_RPC_URL: credentials.NEUTRAL_RPC_URL }),
-    ...(credentials.ALCHEMY_RPC_URL && { ALCHEMY_RPC_URL: credentials.ALCHEMY_RPC_URL }),
     // Use a monitoring-appropriate default run count unless already set in baseEnv
     RUN_COUNT: baseEnv.RUN_COUNT ?? String(MONITORING_RUN_COUNT_DEFAULT),
   }
@@ -152,9 +142,29 @@ function createDefaultGridRunner(): GridRunner {
 
 // ── Structured logging ──────────────────────────────────────────────────────
 // All monitor logs are single-line JSON so CloudWatch Logs Insights can filter
-// by `event`. Error reasons here are already private-key-redacted by the
-// service (serializeErrorRedacted), so they are safe to emit.
-function logRunResults(results: ProviderRunResult[], network: string, region: string): void {
+// by `event`. Error reasons are defensively redacted again at this boundary.
+function observerApiForProvider(provider: string): string {
+  if (provider === 'alchemy-mav2-bso') return 'eth_getUserOperationReceipt'
+  if (provider === 'alchemy-wallet-sendcalls') return 'wallet_getCallsStatus'
+  return 'generic-log-scan'
+}
+
+function expectedStages(protocolClass: ProtocolClass): Array<keyof RunRecord['stages']> {
+  const common: Array<keyof RunRecord['stages']> = ['submit', 'preconf', 'canonical', 'providerReceipt']
+  return protocolClass === 'wallet-sendcalls' ? ['prepare', 'send', ...common] : common
+}
+
+function redactLogText(value: string | undefined, credentials: MonitoringCredentials): string | undefined {
+  if (value == null) return undefined
+  return serializeErrorRedacted(value, credentials.OWNER_PRIVATE_KEY, [credentials.ALCHEMY_API_KEY]).message
+}
+
+function logRunResults(
+  results: ProviderRunResult[],
+  network: string,
+  region: string,
+  credentials: MonitoringCredentials,
+): void {
   for (const { row, records, metrics: pm } of results) {
     const stages: Record<string, { median: number; p95: number; count: number }> = {}
     for (const [stage, sm] of Object.entries(pm.stages)) {
@@ -162,6 +172,7 @@ function logRunResults(results: ProviderRunResult[], network: string, region: st
     }
     console.log(JSON.stringify({
       event: 'provider_summary',
+      measurement_epoch: MEASUREMENT_EPOCH,
       network,
       region,
       provider: row.id,
@@ -173,17 +184,48 @@ function logRunResults(results: ProviderRunResult[], network: string, region: st
     }))
 
     for (const rec of records) {
-      const failed = Object.entries(rec.stages).filter(([, s]) => s.status === 'failed' || s.status === 'timed-out')
+      const observerApi = rec.canonicalObservation?.api ?? observerApiForProvider(row.id)
+      const stages = Object.fromEntries(expectedStages(rec.protocolClass).map((stage) => {
+        const value = rec.stages[stage] ?? { status: 'not-observed' as const }
+        return [stage, {
+          outcome: value.status,
+          ...(value.ms != null ? { duration_ms: value.ms } : {}),
+          ...(value.reason ? { reason: redactLogText(value.reason, credentials) } : {}),
+        }]
+      }))
+      console.log(JSON.stringify({
+        event: 'benchmark_attempt',
+        measurement_epoch: MEASUREMENT_EPOCH,
+        network,
+        region,
+        provider: row.id,
+        protocol_class: rec.protocolClass,
+        run_index: rec.runIndex,
+        accepted_at_ms: rec.acceptedAtMs ?? null,
+        observer_api: observerApi,
+        poll_count: rec.canonicalObservation?.pollCount ?? 0,
+        terminal_status: rec.canonicalObservation?.terminalStatus ?? null,
+        error_class: rec.canonicalObservation?.errorClass ?? null,
+        stages,
+      }))
+
+      const failed = Object.entries(rec.stages).filter(([, s]) =>
+        s.status === 'failed' || s.status === 'timed-out' || s.status === 'observer-error')
       if (failed.length === 0) continue
       console.log(JSON.stringify({
         event: 'run_failed',
+        measurement_epoch: MEASUREMENT_EPOCH,
         network,
         region,
         provider: row.id,
         run_index: rec.runIndex,
         account: rec.accountAddress,
-        error: rec.error ?? null,
-        stages: failed.map(([stage, s]) => ({ stage, status: s.status, reason: s.reason ?? null })),
+        error: redactLogText(rec.error, credentials) ?? null,
+        stages: failed.map(([stage, s]) => ({
+          stage,
+          status: s.status,
+          reason: redactLogText(s.reason, credentials) ?? null,
+        })),
       }))
     }
   }
@@ -191,26 +233,29 @@ function logRunResults(results: ProviderRunResult[], network: string, region: st
 
 function emitRunMetrics(results: ProviderRunResult[], metrics: MonitorMetrics, network: string, region: string): void {
   for (const { records, metrics: pm } of results) {
+    const observerApi = records.find(record => record.canonicalObservation)?.canonicalObservation?.api
+      ?? observerApiForProvider(pm.provider)
     const summaryLabels = {
       protocol_class: pm.protocolClass,
       provider_id: pm.provider,
+      observer_api: observerApi,
+      measurement_epoch: MEASUREMENT_EPOCH,
       network,
       region,
     }
 
     // Counters are cumulative across runs; Prometheus `rate()` / `increase()`
     // derive windowed attempt counts and success rates from them.
-    metrics.attemptsTotal.inc(summaryLabels, pm.runCount)
+    metrics.attemptsTotal.inc(summaryLabels, records.length)
     metrics.failuresTotal.inc(summaryLabels, pm.failureCount)
 
-    // Observe per-attempt stage latencies into the histogram. The inclusion
-    // rule mirrors `aggregateRuns` `successRecords` (no error AND submit ok) so
-    // the pooled population matches what the old percentile gauges summarized.
     for (const rec of records) {
-      if (rec.error || rec.stages.submit.status !== 'ok') continue
-      for (const [stage, s] of Object.entries(rec.stages)) {
-        if (!s || s.ms == null) continue
-        metrics.stageLatency.observe({ ...summaryLabels, stage }, s.ms / 1000)
+      for (const stage of expectedStages(rec.protocolClass)) {
+        const value = rec.stages[stage] ?? { status: 'not-observed' as const }
+        metrics.stageOutcomesTotal.inc({ ...summaryLabels, stage, outcome: value.status })
+        if (value.status === 'ok' && value.ms != null) {
+          metrics.stageLatency.observe({ ...summaryLabels, stage }, value.ms / 1000)
+        }
       }
     }
 
@@ -228,17 +273,19 @@ async function runOnceForNetwork(
   mergedEnv: EnvSource,
   runner: GridRunner,
 ): Promise<void> {
-  const neutralRpcUrl = resolveNeutralRpcUrl(network, credentials, mergedEnv)
+  const alchemyRpcUrl = resolveAlchemyRpcUrl(network, credentials)
   const env: EnvSource = {
     ...mergedEnv,
     NETWORK: network,
-    ...(neutralRpcUrl && { NEUTRAL_RPC_URL: neutralRpcUrl }),
+    NEUTRAL_RPC_URL: alchemyRpcUrl,
+    ALCHEMY_RPC_URL: alchemyRpcUrl,
   }
   const config = loadConfig(env)
 
   const adapterIds = buildAdapterEntries(env).map(e => e.row.id)
   console.log(JSON.stringify({
     event: 'run_start',
+    measurement_epoch: MEASUREMENT_EPOCH,
     network: config.network,
     region,
     run_count: config.runCount,
@@ -249,12 +296,12 @@ async function runOnceForNetwork(
     const results = await runner(config, env)
     // Log the detailed per-provider / per-failed-run breakdown BEFORE emitting
     // metrics so diagnostics are emitted even if metric publishing throws.
-    logRunResults(results, config.network, region)
+    logRunResults(results, config.network, region, credentials)
     emitRunMetrics(results, metrics, config.network, region)
-    console.log(JSON.stringify({ event: 'run_complete', network: config.network, region, providerCount: results.length }))
+    console.log(JSON.stringify({ event: 'run_complete', measurement_epoch: MEASUREMENT_EPOCH, network: config.network, region, providerCount: results.length }))
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    console.error(JSON.stringify({ event: 'run_error', network: config.network, region, error: message }))
+    const message = redactLogText(e instanceof Error ? e.message : String(e), credentials)
+    console.error(JSON.stringify({ event: 'run_error', measurement_epoch: MEASUREMENT_EPOCH, network: config.network, region, error: message }))
   }
 }
 

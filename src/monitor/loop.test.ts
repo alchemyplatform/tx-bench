@@ -231,6 +231,110 @@ describe('runOnce', () => {
     expect(a?.value).toBe(3)
   })
 
+  it('keeps successful stage latencies when canonical observation fails later', async () => {
+    const metrics = makeMetrics()
+    const record = makeRecord(
+      'alchemy-wallet-sendcalls',
+      'wallet-sendcalls',
+      { prepare: 30, send: 50, submit: 80 },
+      0,
+    )
+    record.stages.canonical = { status: 'observer-error', reason: 'status endpoint unavailable' }
+    record.error = 'status endpoint unavailable'
+    record.canonicalObservation = {
+      api: 'wallet_getCallsStatus',
+      pollCount: 4,
+      errorClass: 'HttpRequestError',
+    }
+    const results = [makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', [record], 0)]
+
+    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
+
+    const latency = await metrics.stageLatency.get()
+    for (const stage of ['prepare', 'send', 'submit']) {
+      const count = latency.values.find(value =>
+        value.metricName === 'txe_bench_stage_latency_seconds_count'
+        && value.labels['stage'] === stage,
+      )
+      expect(count?.value).toBe(1)
+    }
+    expect(latency.values.some(value =>
+      value.metricName === 'txe_bench_stage_latency_seconds_count'
+      && value.labels['stage'] === 'canonical',
+    )).toBe(false)
+
+    const outcomes = await metrics.stageOutcomesTotal.get()
+    const canonicalError = outcomes.values.find(value =>
+      value.labels['stage'] === 'canonical'
+      && value.labels['outcome'] === 'observer-error',
+    )
+    expect(canonicalError?.value).toBe(1)
+    expect(canonicalError?.labels['observer_api']).toBe('wallet_getCallsStatus')
+    expect(canonicalError?.labels['measurement_epoch']).toBe('alchemy-status-v2')
+  })
+
+  it('emits exactly one canonical outcome per attempt for reconciliation', async () => {
+    const metrics = makeMetrics()
+    const success = makeRecord('alchemy-mav2-bso', '4337-bundler', { submit: 100, canonical: 2_000 }, 0)
+    success.canonicalObservation = {
+      api: 'eth_getUserOperationReceipt',
+      pollCount: 3,
+      terminalStatus: 'success',
+    }
+    const timedOut = makeRecord('alchemy-mav2-bso', '4337-bundler', { submit: 110 }, 1)
+    timedOut.stages.canonical = { status: 'timed-out' }
+    timedOut.canonicalObservation = { api: 'eth_getUserOperationReceipt', pollCount: 10 }
+    const failed = makeFailedRecord('alchemy-mav2-bso', '4337-bundler', 2)
+    const results = [makeProviderResult('alchemy-mav2-bso', '4337-bundler', [success, timedOut, failed], 1)]
+
+    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
+
+    const attempts = (await metrics.attemptsTotal.get()).values[0]?.value
+    const canonicalOutcomes = (await metrics.stageOutcomesTotal.get()).values
+      .filter(value => value.labels['stage'] === 'canonical')
+      .reduce((sum, value) => sum + value.value, 0)
+    expect(attempts).toBe(3)
+    expect(canonicalOutcomes).toBe(3)
+  })
+
+  it('logs one redacted structured benchmark_attempt event per record', async () => {
+    const metrics = makeMetrics()
+    const record = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 80 }, 7)
+    record.stages.canonical = {
+      status: 'observer-error',
+      reason: `request https://api.g.alchemy.com/v2/${CREDENTIALS.ALCHEMY_API_KEY} failed for ${CREDENTIALS.OWNER_PRIVATE_KEY}`,
+    }
+    record.canonicalObservation = {
+      api: 'wallet_getCallsStatus',
+      pollCount: 5,
+      terminalStatus: '500',
+      errorClass: 'HttpRequestError',
+    }
+    const logs: string[] = []
+    const original = console.log
+    console.log = (...args: unknown[]) => { logs.push(args.join(' ')) }
+    try {
+      await runOnce(CREDENTIALS, metrics, REGION, {
+        gridRunner: mockGridRunner([makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', [record], 0)]) as never,
+        baseEnv: BASE_ENV,
+      })
+    } finally {
+      console.log = original
+    }
+
+    const attempts = logs.filter(line => line.includes('"event":"benchmark_attempt"'))
+    expect(attempts).toHaveLength(1)
+    const event = JSON.parse(attempts[0]!)
+    expect(event.observer_api).toBe('wallet_getCallsStatus')
+    expect(event.poll_count).toBe(5)
+    expect(event.terminal_status).toBe('500')
+    expect(event.error_class).toBe('HttpRequestError')
+    expect(event.stages.submit).toEqual({ outcome: 'ok', duration_ms: 80 })
+    expect(event.stages.canonical.outcome).toBe('observer-error')
+    expect(attempts[0]).not.toContain(CREDENTIALS.ALCHEMY_API_KEY)
+    expect(attempts[0]).not.toContain(CREDENTIALS.OWNER_PRIVATE_KEY)
+  })
+
   it('observes latencies for two providers independently', async () => {
     const metrics = makeMetrics()
     const results = [
@@ -381,7 +485,7 @@ describe('runOnce', () => {
     expect(capturedEnvs[0]?.NEUTRAL_RPC_URL).toBe('https://eth-mainnet.g.alchemy.com/v2/test-key')
   })
 
-  it('prefers a per-network NEUTRAL_RPC_URLS override from credentials over the built-in default', async () => {
+  it('ignores non-Alchemy neutral overrides and always derives the Alchemy URL', async () => {
     const metrics = makeMetrics()
     const capturedEnvs: EnvSource[] = []
     const runner = mock(async (_config: Config, env: EnvSource) => {
@@ -395,7 +499,7 @@ describe('runOnce', () => {
     const env: EnvSource = { NETWORKS: 'eth-mainnet' }
 
     await runOnce(credsWithOverride, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
-    expect(capturedEnvs[0]?.NEUTRAL_RPC_URL).toBe('https://custom-eth.example.com')
+    expect(capturedEnvs[0]?.NEUTRAL_RPC_URL).toBe('https://eth-mainnet.g.alchemy.com/v2/test-key')
   })
 
   it('logs a run_start event with network, region, run_count, and runnable providers before the run', async () => {

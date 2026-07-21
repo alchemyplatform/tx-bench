@@ -8,10 +8,11 @@ export type MonitoringCredentials = {
   ALCHEMY_POLICY_ID: string
   OWNER_PRIVATE_KEY: `0x${string}`
   ALCHEMY_BSO_POLICY_ID?: string
+  // Legacy fields remain in the input type for rollout compatibility but are
+  // ignored by the monitor. Internal measurement endpoints are always derived
+  // from ALCHEMY_API_KEY.
   NEUTRAL_RPC_URL?: string
   ALCHEMY_RPC_URL?: string
-  // Per-network neutral RPC overrides, keyed by network slug (e.g. "eth-mainnet").
-  // Falls back to built-in defaults in loop.ts for known networks when absent.
   NEUTRAL_RPC_URLS?: Record<string, string>
 }
 
@@ -41,34 +42,10 @@ export async function loadMonitoringCredentials(
     )
   }
 
-  let neutralRpcUrls: Record<string, string> | undefined
-  if (obj['NEUTRAL_RPC_URLS'] !== undefined) {
-    const rawMap = obj['NEUTRAL_RPC_URLS']
-    // Tolerant parsing: some secret stores double-encode this field as a JSON
-    // string (e.g. "{}"). Rather than crash the monitor on a malformed value,
-    // treat any non-plain-object value as absent. For Alchemy-only monitoring
-    // the per-network neutral map is unnecessary — the loop falls back to the
-    // Alchemy chain URL as the neutral canonical oracle (allowed by preflight
-    // when all runnable providers are Alchemy).
-    if (typeof rawMap === 'object' && rawMap !== null && !Array.isArray(rawMap)) {
-      const map: Record<string, string> = {}
-      for (const [network, url] of Object.entries(rawMap as Record<string, unknown>)) {
-        if (typeof url === 'string') {
-          map[network] = url
-        }
-      }
-      neutralRpcUrls = map
-    }
-    // else: ignore non-object values (string, number, null, array) — no throw.
-  }
-
   return {
     ALCHEMY_API_KEY: obj['ALCHEMY_API_KEY'] as string,
     ALCHEMY_POLICY_ID: obj['ALCHEMY_POLICY_ID'] as string,
     OWNER_PRIVATE_KEY: ownerPrivateKey as `0x${string}`,
     ...(typeof obj['ALCHEMY_BSO_POLICY_ID'] === 'string' && { ALCHEMY_BSO_POLICY_ID: obj['ALCHEMY_BSO_POLICY_ID'] }),
-    ...(typeof obj['NEUTRAL_RPC_URL'] === 'string' && { NEUTRAL_RPC_URL: obj['NEUTRAL_RPC_URL'] }),
-    ...(typeof obj['ALCHEMY_RPC_URL'] === 'string' && { ALCHEMY_RPC_URL: obj['ALCHEMY_RPC_URL'] }),
-    ...(neutralRpcUrls && { NEUTRAL_RPC_URLS: neutralRpcUrls }),
   }
 }
