@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test'
 import { Registry } from 'prom-client'
 import { buildMetrics } from './metrics'
-import { runOnce, buildAdapterEntries } from './loop'
+import { runOnce, buildAdapterEntries, computeRegionalStartDelayMs, startLoop } from './loop'
 import type { MonitoringCredentials } from './secrets'
 import type { ProviderRunResult } from '../benchmark/service'
 import type { Config, EnvSource } from '../benchmark/config'
@@ -636,5 +636,103 @@ describe('buildAdapterEntries', () => {
     expect(ids).not.toContain('zerodev-ultrarelay')
     expect(ids).not.toContain('alchemy-light-account')
     expect(ids).not.toContain('alchemy-modular-account-v2')
+  })
+})
+
+describe('startLoop regional scheduling', () => {
+  it('places each production region in a distinct 15-minute hourly slot', () => {
+    const now = Date.UTC(2026, 6, 21, 12, 7, 0)
+    const jitterMs = 30_000
+
+    expect(computeRegionalStartDelayMs('us-east-1', now, jitterMs)).toBe(53 * 60_000 + jitterMs)
+    expect(computeRegionalStartDelayMs('us-west-2', now, jitterMs)).toBe(8 * 60_000 + jitterMs)
+    expect(computeRegionalStartDelayMs('eu-central-1', now, jitterMs)).toBe(23 * 60_000 + jitterMs)
+    expect(computeRegionalStartDelayMs('ap-southeast-1', now, jitterMs)).toBe(38 * 60_000 + jitterMs)
+  })
+
+  it('waits for the next hour when a task restarts after its regional slot', () => {
+    const now = Date.UTC(2026, 6, 21, 12, 15, 45)
+
+    expect(computeRegionalStartDelayMs('us-west-2', now, 30_000)).toBe(59 * 60_000 + 45_000)
+  })
+
+  it('waits for the regional slot plus jitter before starting the hourly loop', async () => {
+    const runner = mockGridRunner([])
+    let startupCallback: (() => void) | undefined
+    let hourlyCallback: (() => void) | undefined
+    let startupDelayMs: number | undefined
+    let hourlyDelayMs: number | undefined
+
+    startLoop(CREDENTIALS, makeMetrics(), 'us-west-2', {
+      gridRunner: runner as never,
+      baseEnv: BASE_ENV,
+      now: () => Date.UTC(2026, 6, 21, 12, 7, 0),
+      random: () => 0.5,
+      setTimeoutFn: (callback, delayMs) => {
+        startupCallback = callback
+        startupDelayMs = delayMs
+      },
+      setIntervalFn: (callback, delayMs) => {
+        hourlyCallback = callback
+        hourlyDelayMs = delayMs
+      },
+    })
+
+    expect(runner).toHaveBeenCalledTimes(0)
+    expect(startupDelayMs).toBe(8 * 60_000 + 30_000)
+
+    startupCallback!()
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(runner).toHaveBeenCalledTimes(1)
+    expect(hourlyCallback).toBeDefined()
+    expect(hourlyDelayMs).toBe(60 * 60_000)
+  })
+
+  it('skips an hourly tick while the previous run is still active', async () => {
+    let releaseFirstRun: (() => void) | undefined
+    let callCount = 0
+    const runner = mock(async () => {
+      callCount++
+      if (callCount === 1) {
+        await new Promise<void>(resolve => { releaseFirstRun = resolve })
+      }
+      return []
+    })
+    let startupCallback: (() => void) | undefined
+    let hourlyCallback: (() => void) | undefined
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => { logs.push(args.join(' ')) }
+
+    try {
+      startLoop(CREDENTIALS, makeMetrics(), REGION, {
+        gridRunner: runner as never,
+        baseEnv: BASE_ENV,
+        now: () => Date.UTC(2026, 6, 21, 12, 0, 0),
+        random: () => 0,
+        setTimeoutFn: (callback) => { startupCallback = callback },
+        setIntervalFn: (callback) => { hourlyCallback = callback },
+      })
+
+      startupCallback!()
+      await Promise.resolve()
+      hourlyCallback!()
+      await Promise.resolve()
+
+      expect(runner).toHaveBeenCalledTimes(1)
+      expect(logs.some(log => log.includes('"event":"run_skipped"'))).toBe(true)
+      expect(logs.some(log => log.includes('"reason":"previous_run_active"'))).toBe(true)
+
+      releaseFirstRun!()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      hourlyCallback!()
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      expect(runner).toHaveBeenCalledTimes(2)
+    } finally {
+      releaseFirstRun?.()
+      console.log = origLog
+    }
   })
 })
