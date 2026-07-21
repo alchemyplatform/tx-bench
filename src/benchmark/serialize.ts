@@ -18,6 +18,8 @@ export function serializeError(err: unknown): SerializedError {
 // ── Private-key redaction ─────────────────────────────────────────────────────
 
 const REDACTED_OWNER_KEY = '[REDACTED_OWNER_PRIVATE_KEY]'
+const REDACTED_ALCHEMY_API_KEY = '[REDACTED_ALCHEMY_API_KEY]'
+const REDACTED_ALCHEMY_URL = '[REDACTED_ALCHEMY_URL]'
 
 /**
  * Remove occurrences of the configured owner private key from a string.
@@ -57,11 +59,28 @@ function escapeRegExp(s: string): string {
  * message and stack trace. Use this instead of `serializeError` in code paths
  * where the error may contain the private key (stable-owner bootstrap/timed).
  */
-export function serializeErrorRedacted(err: unknown, ownerPrivateKey?: `0x${string}`): SerializedError {
+export function serializeErrorRedacted(
+  err: unknown,
+  ownerPrivateKey?: `0x${string}`,
+  alchemyApiKeys: readonly string[] = [],
+): SerializedError {
   const serialized = serializeError(err)
+  const redact = (text: string): string => {
+    let result = redactPrivateKey(text, ownerPrivateKey)
+    for (const apiKey of alchemyApiKeys) {
+      // Short fixture values such as "key" are too ambiguous to redact safely
+      // and can corrupt unrelated words or redaction placeholders. Real Alchemy
+      // API keys are substantially longer.
+      if (apiKey.length < 8) continue
+      const keyedUrl = new RegExp(`https?://[^\\s\"'<>]*${escapeRegExp(apiKey)}[^\\s\"'<>]*`, 'gi')
+      result = result.replace(keyedUrl, REDACTED_ALCHEMY_URL)
+      result = result.replace(new RegExp(escapeRegExp(apiKey), 'gi'), REDACTED_ALCHEMY_API_KEY)
+    }
+    return result
+  }
   return {
-    message: redactPrivateKey(serialized.message, ownerPrivateKey),
+    message: redact(serialized.message),
     ...(serialized.name ? { name: serialized.name } : {}),
-    ...(serialized.stack ? { stack: redactPrivateKey(serialized.stack, ownerPrivateKey) } : {}),
+    ...(serialized.stack ? { stack: redact(serialized.stack) } : {}),
   }
 }

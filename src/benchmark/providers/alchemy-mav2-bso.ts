@@ -7,6 +7,9 @@ import { estimateFeesPerGas } from '@alchemy/aa-infra'
 import { toModularAccountV2 } from '@alchemy/smart-accounts'
 import type { Config } from '../config.js'
 import type { AccountClient, ProviderAdapter, SponsoredResult } from './types.js'
+import type { CanonicalObserver, CanonicalResult } from '../oracle/canonical.js'
+import { isRetryableObserverError, pollObserver } from '../oracle/polling.js'
+import { serializeErrorRedacted } from '../serialize.js'
 import { resolveChain } from '../chains.js'
 
 // ── Dependency types (injectable for testing) ─────────────────────────────────
@@ -16,6 +19,21 @@ type KeyGen = typeof generatePrivateKey
 type ChainResolver = (network: string) => Chain
 type GetCodeFn = (address: `0x${string}`) => Promise<string | undefined>
 type SendDeployOpFn = (account: unknown) => Promise<void>
+type ObserverNow = () => number
+type ObserverSleep = (ms: number) => Promise<void>
+
+type UserOperationReceiptResponse = {
+  success: boolean
+  receipt?: {
+    blockNumber?: bigint | string | null
+    transactionHash?: `0x${string}` | null
+  } | null
+}
+
+type ReceiptRequest = (request: {
+  method: 'eth_getUserOperationReceipt'
+  params: readonly [`0x${string}`]
+}) => Promise<UserOperationReceiptResponse | null>
 
 // ── Bootstrap polling config ──────────────────────────────────────────────────
 
@@ -29,6 +47,11 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
   private readonly stableOwner: ReturnType<typeof privateKeyToAccount> | undefined
   // ensureDeployed is only attached when stableOwner is set (see constructor).
   readonly ensureDeployed?: () => Promise<void>
+  readonly canonicalObserver: CanonicalObserver
+  // Memoized receipt request — built once per client instance instead of per
+  // _watchCanonical call, to avoid repeated transport/client allocation across
+  // a 20-run monitoring cycle.
+  private receiptRequestFn?: ReceiptRequest
 
   constructor(
     private readonly apiKey: string,
@@ -40,6 +63,9 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
     ownerPrivateKey?: `0x${string}`,
     private readonly getCodeFn?: GetCodeFn,
     private readonly sendDeployOpFn?: SendDeployOpFn,
+    private readonly injectedReceiptRequest?: ReceiptRequest,
+    private readonly observerNow?: ObserverNow,
+    private readonly observerSleep?: ObserverSleep,
   ) {
     if (ownerPrivateKey) {
       this.stableOwner = privateKeyToAccount(ownerPrivateKey)
@@ -47,6 +73,104 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
       // `typeof client.ensureDeployed !== 'function'` check skips it in random mode.
       this.ensureDeployed = this._ensureDeployed.bind(this)
     }
+    this.canonicalObserver = {
+      api: 'eth_getUserOperationReceipt',
+      watch: (identifier, timeoutMs) => this._watchCanonical(identifier, timeoutMs, ownerPrivateKey),
+    }
+  }
+
+  private async _watchCanonical(
+    userOpHash: `0x${string}`,
+    timeoutMs: number,
+    ownerPrivateKey?: `0x${string}`,
+  ): Promise<CanonicalResult> {
+    const request = this.injectedReceiptRequest ?? this._resolveReceiptRequest()
+    const polled = await pollObserver({
+      request: () => request({
+        method: 'eth_getUserOperationReceipt',
+        params: [userOpHash],
+      }),
+      isPending: (response) => response == null
+        || (response.success === true
+          && (response.receipt?.blockNumber == null || response.receipt.transactionHash == null)),
+      timeoutMs,
+      isRetryableError: isRetryableObserverError,
+      now: this.observerNow,
+      sleep: this.observerSleep,
+    })
+
+    const observation = {
+      api: 'eth_getUserOperationReceipt' as const,
+      pollCount: polled.pollCount,
+    }
+    if (polled.kind === 'timed-out') {
+      return { status: 'timed-out', observation }
+    }
+    if (polled.kind === 'error') {
+      const serialized = serializeErrorRedacted(polled.error, ownerPrivateKey, [this.apiKey])
+      return {
+        status: 'observer-error',
+        reason: serialized.message,
+        observation: {
+          ...observation,
+          errorClass: polled.error instanceof Error ? polled.error.name : typeof polled.error,
+        },
+      }
+    }
+
+    const response = polled.value
+    if (response == null) {
+      return { status: 'timed-out', observation }
+    }
+    // Field extraction / BigInt conversion can throw on a malformed receipt
+    // (e.g. missing blockNumber). Wrap it so the real pollCount is preserved —
+    // an uncaught throw here would propagate to service.ts canonicalPromise.catch
+    // and be recorded with pollCount: 0, losing the polls already incurred.
+    try {
+      const blockNumber = response.receipt?.blockNumber
+      if (!response.success) {
+        return {
+          status: 'integrity-fail',
+          blockNumber: blockNumber == null ? 0n : BigInt(blockNumber),
+          reason: 'eth_getUserOperationReceipt returned success=false',
+          observation: { ...observation, terminalStatus: 'failure' },
+        }
+      }
+
+      return {
+        status: 'ok',
+        blockNumber: BigInt(blockNumber!),
+        txHash: response.receipt!.transactionHash!,
+        tMs: polled.observedAtMs,
+        observation: { ...observation, terminalStatus: 'success' },
+      }
+    } catch (e) {
+      const serialized = serializeErrorRedacted(e, ownerPrivateKey, [this.apiKey])
+      return {
+        status: 'observer-error',
+        reason: serialized.message,
+        observation: {
+          ...observation,
+          errorClass: e instanceof Error ? e.name : typeof e,
+        },
+      }
+    }
+  }
+
+  private _resolveReceiptRequest(): ReceiptRequest {
+    if (this.receiptRequestFn) return this.receiptRequestFn
+    this.receiptRequestFn = this._createReceiptRequest()
+    return this.receiptRequestFn
+  }
+
+  private _createReceiptRequest(): ReceiptRequest {
+    const chain = this.chainResolver(this.network)
+    const transport = alchemyTransport({
+      apiKey: this.apiKey,
+      fetchOptions: { headers: { 'x-alchemy-policy-id': this.bsoPolicyId } },
+    })
+    const client = createBundlerClient({ chain, transport })
+    return async (request) => client.request(request as never) as Promise<UserOperationReceiptResponse | null>
   }
 
   // ── Stable-owner self-bootstrap ─────────────────────────────────────────────
@@ -178,12 +302,18 @@ export function createAlchemyMAv2BSOAdapter(deps?: {
   chainResolver?: ChainResolver
   getCodeFn?: GetCodeFn
   sendDeployOpFn?: SendDeployOpFn
+  receiptRequest?: ReceiptRequest
+  observerNow?: ObserverNow
+  observerSleep?: ObserverSleep
 }): ProviderAdapter {
   const toAccount = deps?.toAccount ?? toModularAccountV2
   const genKey = deps?.generateKey ?? generatePrivateKey
   const chainResolver = deps?.chainResolver ?? resolveChain
   const getCodeFn = deps?.getCodeFn
   const sendDeployOpFn = deps?.sendDeployOpFn
+  const receiptRequest = deps?.receiptRequest
+  const observerNow = deps?.observerNow
+  const observerSleep = deps?.observerSleep
 
   return {
     id: 'alchemy-mav2-bso',
@@ -201,6 +331,7 @@ export function createAlchemyMAv2BSOAdapter(deps?: {
       return new AlchemyMAv2BSOAccountClient(
         cfg.apiKey, cfg.bsoPolicyId, config.network, toAccount, genKey, chainResolver,
         config.ownerPrivateKey, getCodeFn, sendDeployOpFn,
+        receiptRequest, observerNow, observerSleep,
       )
     },
   }

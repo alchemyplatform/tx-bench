@@ -100,6 +100,138 @@ describe('alchemyMAv2BSOAdapter — buildAccountClient', () => {
   })
 })
 
+describe('alchemyMAv2BSOAdapter — eth_getUserOperationReceipt observer', () => {
+  const userOpHash = ('0x' + 'ab'.repeat(32)) as `0x${string}`
+  const txHash = ('0x' + 'cd'.repeat(32)) as `0x${string}`
+
+  it('polls the exact submitted hash until a mined successful receipt is returned', async () => {
+    const calls: Array<{ method: string; params: readonly unknown[] }> = []
+    const responses = [
+      null,
+      null,
+      { success: true, receipt: { blockNumber: '0x64', transactionHash: txHash } },
+    ]
+    const adapter = createAlchemyMAv2BSOAdapter({
+      receiptRequest: async (request) => {
+        calls.push(request)
+        return responses.shift() ?? null
+      },
+      observerSleep: async () => {},
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.canonicalObserver!.watch(userOpHash, 10_000)
+
+    expect(calls).toHaveLength(3)
+    expect(calls.every(call => call.method === 'eth_getUserOperationReceipt')).toBe(true)
+    expect(calls.every(call => call.params[0] === userOpHash)).toBe(true)
+    expect(result).toEqual({
+      status: 'ok',
+      blockNumber: 100n,
+      txHash,
+      tMs: expect.any(Number),
+      observation: {
+        api: 'eth_getUserOperationReceipt',
+        pollCount: 3,
+        terminalStatus: 'success',
+      },
+    })
+  })
+
+  it('maps success false to a terminal canonical failure', async () => {
+    const adapter = createAlchemyMAv2BSOAdapter({
+      receiptRequest: async () => ({
+        success: false,
+        receipt: { blockNumber: '0x65', transactionHash: txHash },
+      }),
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.canonicalObserver!.watch(userOpHash, 10_000)
+
+    expect(result.status).toBe('integrity-fail')
+    expect(result.observation).toEqual({
+      api: 'eth_getUserOperationReceipt',
+      pollCount: 1,
+      terminalStatus: 'failure',
+    })
+  })
+
+  it('does not treat a preconfirmed response without mined identifiers as canonical', async () => {
+    const responses = [
+      { success: true, receipt: { blockNumber: null, transactionHash: null } },
+      { success: true, receipt: { blockNumber: 102n, transactionHash: txHash } },
+    ]
+    const adapter = createAlchemyMAv2BSOAdapter({
+      receiptRequest: async () => responses.shift() ?? null,
+      observerSleep: async () => {},
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.canonicalObserver!.watch(userOpHash, 10_000)
+
+    expect(result.status).toBe('ok')
+    expect(result.observation?.pollCount).toBe(2)
+  })
+
+  it('retries a transient request error and reports the successful poll count', async () => {
+    let attempts = 0
+    const adapter = createAlchemyMAv2BSOAdapter({
+      receiptRequest: async () => {
+        attempts++
+        if (attempts === 1) throw Object.assign(new Error('temporary upstream failure'), { status: 503 })
+        return { success: true, receipt: { blockNumber: 103n, transactionHash: txHash } }
+      },
+      observerSleep: async () => {},
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.canonicalObserver!.watch(userOpHash, 10_000)
+
+    expect(result.status).toBe('ok')
+    expect(result.observation?.pollCount).toBe(2)
+  })
+
+  it('returns timed-out when no mined receipt arrives before the shared deadline', async () => {
+    let now = 0
+    const adapter = createAlchemyMAv2BSOAdapter({
+      receiptRequest: async () => null,
+      observerNow: () => now,
+      observerSleep: async (ms) => { now += ms },
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.canonicalObserver!.watch(userOpHash, 500)
+
+    expect(result.status).toBe('timed-out')
+    expect(result.observation?.api).toBe('eth_getUserOperationReceipt')
+    expect(result.observation?.pollCount).toBe(3)
+  })
+
+  it('preserves the real pollCount when a malformed receipt throws during field extraction', async () => {
+    // success=true but blockNumber is a non-BigInt-convertible value, so
+    // BigInt(blockNumber!) throws after the poll succeeds. The error must be
+    // contained and reported as observer-error with the actual poll count,
+    // not lost as pollCount: 0 by service.ts canonicalPromise.catch.
+    const adapter = createAlchemyMAv2BSOAdapter({
+      receiptRequest: async () => ({
+        success: true,
+        receipt: { blockNumber: 'not-a-bigint', transactionHash: txHash },
+      }),
+      observerSleep: async () => {},
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.canonicalObserver!.watch(userOpHash, 10_000)
+
+    expect(result.status).toBe('observer-error')
+    expect(result.observation?.api).toBe('eth_getUserOperationReceipt')
+    expect(result.observation?.pollCount).toBe(1)
+    expect(result.observation?.errorClass).toBe('SyntaxError')
+    expect(typeof (result as { reason?: string }).reason).toBe('string')
+  })
+})
+
 describe('alchemyMAv2BSOAdapter — network-aware chain resolution', () => {
   it('uses the Ethereum chain (id 1) when config.network = eth-mainnet', async () => {
     const { fn: mockToAccount, capturedChains } = makeMockToAccount()

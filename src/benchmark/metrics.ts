@@ -38,6 +38,8 @@ function stageFromCanonical(result: CanonicalResult, acceptedMs: number): Stage 
       return makeStage('timed-out')
     case 'integrity-fail':
       return makeStage('failed', undefined, result.reason)
+    case 'observer-error':
+      return makeStage('observer-error', undefined, result.reason)
   }
 }
 
@@ -126,10 +128,10 @@ export function buildRunRecord(input: RunInput): RunRecord {
     }
   }
 
-  if (canonical.status === 'ok') {
+  if (canonical.status === 'ok' && canonical.blockNumber != null) {
     blockPositions.canonical = {
       blockNumber: canonical.blockNumber,
-      txHash: canonical.txHash,
+      ...(canonical.txHash ? { txHash: canonical.txHash } : {}),
     }
   }
 
@@ -144,6 +146,7 @@ export function buildRunRecord(input: RunInput): RunRecord {
     accountTypeLabel,
     accountAddress: sponsored.accountAddress,
     userOpHash: sponsored.userOpHash,
+    acceptedAtMs,
     stages: {
       submit: makeStage('ok', submitMs),
       preconf: preconfStage,
@@ -153,6 +156,7 @@ export function buildRunRecord(input: RunInput): RunRecord {
       ...(sponsored.sendMs != null ? { send: makeStage('ok', sponsored.sendMs) } : {}),
     },
     blockPositions,
+    ...(canonical.observation ? { canonicalObservation: canonical.observation } : {}),
     ...(gas
       ? {
           gas: {

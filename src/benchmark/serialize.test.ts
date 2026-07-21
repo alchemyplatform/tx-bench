@@ -112,6 +112,23 @@ describe('serializeErrorRedacted', () => {
   })
 })
 
+describe('serializeErrorRedacted — Alchemy credentials', () => {
+  it('redacts the API key and the full keyed endpoint URL', () => {
+    const apiKey = 'alchemy-secret-api-key'
+    const url = `https://base-mainnet.g.alchemy.com/v2/${apiKey}`
+    const serialized = serializeErrorRedacted(
+      new Error(`request to ${url} rejected with key ${apiKey}`),
+      undefined,
+      [apiKey],
+    )
+
+    expect(serialized.message).toContain('[REDACTED_ALCHEMY_URL]')
+    expect(serialized.message).toContain('[REDACTED_ALCHEMY_API_KEY]')
+    expect(serialized.message).not.toContain(url)
+    expect(serialized.message).not.toContain(apiKey)
+  })
+})
+
 // ── serializeError (regression — no redaction) ────────────────────────────────
 
 describe('serializeError (unredacted, regression)', () => {

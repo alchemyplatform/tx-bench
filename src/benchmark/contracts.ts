@@ -1,6 +1,8 @@
+import type { CanonicalObserverApi } from './oracle/canonical.js'
+
 // Shared domain types used across all benchmark modules.
 
-export type StageStatus = 'ok' | 'failed' | 'timed-out' | 'not-observed'
+export type StageStatus = 'ok' | 'failed' | 'timed-out' | 'observer-error' | 'not-observed'
 
 export type Stage = {
   status: StageStatus
@@ -33,6 +35,9 @@ export type RunRecord = {
   accountTypeLabel: string
   accountAddress: `0x${string}`
   userOpHash: `0x${string}`
+  // Captured when the provider accepts the submitted identifier. Absent only
+  // when submission itself fails.
+  acceptedAtMs?: number
   stages: {
     submit: Stage
     preconf: Stage
@@ -44,6 +49,12 @@ export type RunRecord = {
   blockPositions: {
     preconf?: BlockPosition
     canonical?: BlockPosition
+  }
+  canonicalObservation?: {
+    api: CanonicalObserverApi
+    pollCount: number
+    terminalStatus?: string
+    errorClass?: string
   }
   gas?: {
     // From neutral node canonical receipt (neutral-sourced)

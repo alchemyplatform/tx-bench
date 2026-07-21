@@ -4,10 +4,32 @@ import { USER_OP_EVENT, findUserOpInLogs } from './identity.js'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+export type CanonicalObserverApi =
+  | 'eth_getUserOperationReceipt'
+  | 'wallet_getCallsStatus'
+  | 'generic-log-scan'
+
+export type CanonicalObservation = {
+  api: CanonicalObserverApi
+  pollCount: number
+  terminalStatus?: string
+  errorClass?: string
+}
+
+type CanonicalResultBase = {
+  observation?: CanonicalObservation
+}
+
 export type CanonicalResult =
-  | { status: 'ok'; blockNumber: bigint; txHash: `0x${string}`; tMs: number }
-  | { status: 'timed-out' }
-  | { status: 'integrity-fail'; blockNumber: bigint; reason: string }
+  | (CanonicalResultBase & { status: 'ok'; blockNumber?: bigint; txHash?: `0x${string}`; tMs: number })
+  | (CanonicalResultBase & { status: 'timed-out' })
+  | (CanonicalResultBase & { status: 'integrity-fail'; blockNumber?: bigint; reason: string })
+  | (CanonicalResultBase & { status: 'observer-error'; reason: string })
+
+export interface CanonicalObserver {
+  readonly api: CanonicalObserverApi
+  watch(identifier: `0x${string}`, timeoutMs: number): Promise<CanonicalResult>
+}
 
 type PendingWatch = {
   resolve: (result: CanonicalResult) => void

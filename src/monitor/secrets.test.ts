@@ -29,7 +29,7 @@ describe('loadMonitoringCredentials', () => {
     expect(creds.ALCHEMY_API_KEY).toBe('test-api-key')
     expect(creds.ALCHEMY_POLICY_ID).toBe('test-policy-id')
     expect(creds.OWNER_PRIVATE_KEY).toBe(('0x' + 'ab'.repeat(32)) as `0x${string}`)
-    expect(creds.NEUTRAL_RPC_URL).toBe('https://base-mainnet.example.com')
+    expect(creds.NEUTRAL_RPC_URL).toBeUndefined()
   })
 
   it('OWNER_PRIVATE_KEY matches 0x${string} format', async () => {
@@ -63,7 +63,7 @@ describe('loadMonitoringCredentials', () => {
     expect(creds.ALCHEMY_BSO_POLICY_ID).toBe('bso-policy-id')
   })
 
-  it('includes NEUTRAL_RPC_URLS map when present in the secret', async () => {
+  it('ignores legacy NEUTRAL_RPC_URLS maps', async () => {
     const secret = JSON.stringify({
       ALCHEMY_API_KEY: 'k',
       ALCHEMY_POLICY_ID: 'p',
@@ -75,10 +75,7 @@ describe('loadMonitoringCredentials', () => {
     })
     const client = makeClient(secret)
     const creds = await loadMonitoringCredentials('us-east-1', client)
-    expect(creds.NEUTRAL_RPC_URLS).toEqual({
-      'eth-mainnet': 'https://eth.example.com',
-      'base-mainnet': 'https://base.example.com',
-    })
+    expect(creds.NEUTRAL_RPC_URLS).toBeUndefined()
   })
 
   it('omits NEUTRAL_RPC_URLS when absent from the secret', async () => {
@@ -100,7 +97,7 @@ describe('loadMonitoringCredentials', () => {
     expect(creds.NEUTRAL_RPC_URLS).toBeUndefined()
   })
 
-  it('ignores non-string entries in NEUTRAL_RPC_URLS', async () => {
+  it('ignores all entries in NEUTRAL_RPC_URLS', async () => {
     const secret = JSON.stringify({
       ALCHEMY_API_KEY: 'k',
       ALCHEMY_POLICY_ID: 'p',
@@ -109,8 +106,7 @@ describe('loadMonitoringCredentials', () => {
     })
     const client = makeClient(secret)
     const creds = await loadMonitoringCredentials('us-east-1', client)
-    // Non-string values are dropped; string values are kept.
-    expect(creds.NEUTRAL_RPC_URLS).toEqual({ 'base-mainnet': 'https://base.example.com' })
+    expect(creds.NEUTRAL_RPC_URLS).toBeUndefined()
   })
 
   it('throws a descriptive error when ALCHEMY_API_KEY is missing', async () => {

@@ -38,12 +38,11 @@ export function aggregateRuns(
   accountTypeLabel: string,
   records: readonly RunRecord[]
 ): ProviderMetrics {
-  const successRecords = records.filter(r => !r.error && r.stages.submit.status === 'ok')
-
   function collectMs(stage: keyof RunRecord['stages']): number[] {
-    return successRecords
-      .map(r => r.stages[stage]?.ms)
-      .filter((ms): ms is number => ms != null)
+    return records.flatMap((record) => {
+      const value = record.stages[stage]
+      return value?.status === 'ok' && value.ms != null ? [value.ms] : []
+    })
   }
 
   return {
@@ -51,7 +50,7 @@ export function aggregateRuns(
     protocolClass,
     accountTypeLabel,
     runCount: records.length,
-    failureCount: records.length - successRecords.length,
+    failureCount: records.filter(record => record.stages.submit.status !== 'ok').length,
     stages: {
       submit: computeStageMetrics(collectMs('submit')),
       preconf: computeStageMetrics(collectMs('preconf')),

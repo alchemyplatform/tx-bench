@@ -4,7 +4,7 @@ import { serializeErrorRedacted } from './serialize.js'
 import type { Config } from './config.js'
 import type { ProtocolClass, ProviderMetrics, ProviderRow, RunRecord } from './contracts.js'
 import type { ProviderAdapter } from './providers/types.js'
-import type { CanonicalOracle } from './oracle/canonical.js'
+import type { CanonicalOracle, CanonicalResult } from './oracle/canonical.js'
 import type { FlashblockOracle } from './oracle/flashblocks.js'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -36,6 +36,12 @@ export async function runBenchmarkGrid(
   onProgress?: (event: ProgressEvent) => void
 ): Promise<ProviderRunResult[]> {
 
+  const serializeBenchmarkError = (error: unknown): string => serializeErrorRedacted(
+    error,
+    config.ownerPrivateKey,
+    config.providers.alchemy ? [config.providers.alchemy.apiKey] : [],
+  ).message
+
   // Build account clients for all providers upfront (validates config once)
   const clientMap = new Map<string, ReturnType<ProviderAdapter['buildAccountClient']> extends Promise<infer T> ? T : never>()
   const buildErrors = new Map<string, string>()
@@ -46,7 +52,7 @@ export async function runBenchmarkGrid(
         const client = await adapter.buildAccountClient(config)
         clientMap.set(row.id, client as never)
       } catch (e) {
-        buildErrors.set(row.id, serializeErrorRedacted(e, config.ownerPrivateKey).message)
+        buildErrors.set(row.id, serializeBenchmarkError(e))
       }
     })
   )
@@ -67,7 +73,7 @@ export async function runBenchmarkGrid(
       try {
         await withTimeout((signal) => client.ensureDeployed!(signal), BOOTSTRAP_PHASE_TIMEOUT_MS, `bootstrap timeout for ${row.id}`)
       } catch (e) {
-        buildErrors.set(row.id, serializeErrorRedacted(e, config.ownerPrivateKey).message)
+        buildErrors.set(row.id, serializeBenchmarkError(e))
       }
     })
   )
@@ -101,19 +107,34 @@ export async function runBenchmarkGrid(
 
         const client = clientMap.get(row.id)!
         try {
-          // Capture block before submission so oracle search is bounded
-          const fromBlock = await canonicalOracle.getBlockNumber()
+          // The generic oracle needs a pre-submit block bound. Adapter-owned
+          // observers operate directly on the accepted identifier and skip it.
+          const fromBlock = client.canonicalObserver
+            ? undefined
+            : await canonicalOracle.getBlockNumber()
 
           const sponsored = await client.sendSponsored()
           const acceptedAtMs = sponsored.acceptedAtMs ?? performance.now()
+          const observerApi = client.canonicalObserver?.api ?? 'generic-log-scan'
 
-          // For wallet-sendcalls providers, canonical is resolved inline during sendSponsored().
-          // For all others, watch the neutral oracle concurrently with the flashblock oracle.
+          const canonicalPromise: Promise<CanonicalResult> = client.canonicalObserver
+            ? client.canonicalObserver.watch(sponsored.userOpHash, config.timeouts.canonicalMs)
+            : canonicalOracle.watch(sponsored.userOpHash, fromBlock!, config.timeouts.canonicalMs)
+
+          // Neither canonical nor preconfirmation observation is allowed to
+          // rewrite an already-accepted submission as submit-failed.
           const [canonical, preconf] = await Promise.all([
-            sponsored.inlineCanonical
-              ? Promise.resolve(sponsored.inlineCanonical)
-              : canonicalOracle.watch(sponsored.userOpHash, fromBlock, config.timeouts.canonicalMs),
-            flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs),
+            canonicalPromise.catch((error): CanonicalResult => ({
+              status: 'observer-error',
+              reason: serializeBenchmarkError(error),
+              observation: {
+                api: observerApi,
+                pollCount: 0,
+                errorClass: error instanceof Error ? error.name : typeof error,
+              },
+            })),
+            flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs)
+              .catch(() => ({ status: 'not-observed' as const })),
           ])
 
           records.push(buildRunRecord({
@@ -134,9 +155,9 @@ export async function runBenchmarkGrid(
             protocolClass: row.protocolClass as ProtocolClass,
             accountTypeLabel: row.accountTypeLabel,
             runIndex: i,
-            error: serializeErrorRedacted(e, config.ownerPrivateKey).message,
+            error: serializeBenchmarkError(e),
           }))
-          onProgress?.({ kind: 'provider-done', provider: row.id, iteration: i, status: 'failed', error: serializeErrorRedacted(e, config.ownerPrivateKey).message })
+          onProgress?.({ kind: 'provider-done', provider: row.id, iteration: i, status: 'failed', error: serializeBenchmarkError(e) })
         }
       })
     )
