@@ -183,6 +183,26 @@ function observerApiForProvider(provider: string): string {
   return 'generic-log-scan'
 }
 
+function initializeSummaryCounters(
+  metrics: MonitorMetrics,
+  network: string,
+  region: string,
+  env: EnvSource,
+): void {
+  for (const { row } of buildAdapterEntries(env)) {
+    const labels = {
+      protocol_class: row.protocolClass,
+      provider_id: row.id,
+      observer_api: observerApiForProvider(row.id),
+      measurement_epoch: MEASUREMENT_EPOCH,
+      network,
+      region,
+    }
+    metrics.attemptsTotal.inc(labels, 0)
+    metrics.failuresTotal.inc(labels, 0)
+  }
+}
+
 function expectedStages(protocolClass: ProtocolClass): Array<keyof RunRecord['stages']> {
   const common: Array<keyof RunRecord['stages']> = ['submit', 'preconf', 'canonical', 'providerReceipt']
   return protocolClass === 'wallet-sendcalls' ? ['prepare', 'send', ...common] : common
@@ -365,6 +385,14 @@ export function startLoop(
 ): void {
   const runner = options.gridRunner ?? createDefaultGridRunner()
   const opts: RunOnceOptions = { gridRunner: runner, baseEnv: options.baseEnv }
+  const baseEnv = options.baseEnv ?? process.env as EnvSource
+  const mergedEnv = buildEnv(credentials, baseEnv)
+  for (const network of parseNetworks(mergedEnv)) {
+    // Register zero-valued counter children before waiting for the regional
+    // slot. Otherwise a freshly started worker has no scrape-visible series
+    // until its first delayed benchmark completes.
+    initializeSummaryCounters(metrics, network, region, mergedEnv)
+  }
   const now = options.now ?? Date.now
   const random = options.random ?? Math.random
   const setTimeoutFn = options.setTimeoutFn ?? setTimeout

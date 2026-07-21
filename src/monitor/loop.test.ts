@@ -656,6 +656,39 @@ describe('startLoop regional scheduling', () => {
     expect(computeRegionalStartDelayMs('us-west-2', now, 30_000)).toBe(59 * 60_000 + 45_000)
   })
 
+  it('publishes an attempts series before the delayed first run', async () => {
+    const metrics = makeMetrics()
+    const runner = mockGridRunner([])
+
+    startLoop(CREDENTIALS, metrics, 'us-west-2', {
+      gridRunner: runner as never,
+      baseEnv: BASE_ENV,
+      now: () => Date.UTC(2026, 6, 21, 12, 7, 0),
+      random: () => 0.5,
+      setTimeoutFn: () => {},
+      setIntervalFn: () => {},
+    })
+
+    const attempts = await metrics.attemptsTotal.get()
+    const failures = await metrics.failuresTotal.get()
+    const walletSeries = attempts.values.find(value =>
+      value.labels['provider_id'] === 'alchemy-wallet-sendcalls'
+      && value.labels['network'] === 'base-mainnet'
+      && value.labels['region'] === 'us-west-2'
+    )
+    const walletFailureSeries = failures.values.find(value =>
+      value.labels['provider_id'] === 'alchemy-wallet-sendcalls'
+      && value.labels['network'] === 'base-mainnet'
+      && value.labels['region'] === 'us-west-2'
+    )
+
+    expect(runner).toHaveBeenCalledTimes(0)
+    expect(walletSeries?.labels['observer_api']).toBe('wallet_getCallsStatus')
+    expect(walletSeries?.labels['measurement_epoch']).toBe('alchemy-status-v2')
+    expect(walletSeries?.value).toBe(0)
+    expect(walletFailureSeries?.value).toBe(0)
+  })
+
   it('waits for the regional slot plus jitter before starting the hourly loop', async () => {
     const runner = mockGridRunner([])
     let startupCallback: (() => void) | undefined
