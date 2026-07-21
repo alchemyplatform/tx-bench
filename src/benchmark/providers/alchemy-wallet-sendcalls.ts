@@ -1,6 +1,7 @@
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { createPublicClient } from 'viem'
 import type { Chain } from 'viem'
+import { alchemyTransport } from '@alchemy/common'
 import { createSmartWalletClient, alchemyWalletTransport } from '@alchemy/wallet-apis'
 import type { Config } from '../config.js'
 import type { AccountClient, ProviderAdapter, SponsoredResult } from './types.js'
@@ -184,7 +185,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
   private _makeGetCode(chain: Chain): GetCodeFn {
     const publicClient = createPublicClient({
       chain,
-      transport: alchemyWalletTransport({ apiKey: this.apiKey }),
+      transport: alchemyTransport({ apiKey: this.apiKey }),
     })
     return (addr) => publicClient.getCode({ address: addr })
   }
