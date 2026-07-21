@@ -1,3 +1,5 @@
+import type { CanonicalObserverApi } from './oracle/canonical.js'
+
 // Shared domain types used across all benchmark modules.
 
 export type StageStatus = 'ok' | 'failed' | 'timed-out' | 'observer-error' | 'not-observed'
@@ -49,7 +51,7 @@ export type RunRecord = {
     canonical?: BlockPosition
   }
   canonicalObservation?: {
-    api: import('./oracle/canonical.js').CanonicalObserverApi
+    api: CanonicalObserverApi
     pollCount: number
     terminalStatus?: string
     errorClass?: string
