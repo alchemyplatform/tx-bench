@@ -18,6 +18,19 @@ import type { ProtocolClass, RunRecord } from '../benchmark/contracts.js'
 const ALCHEMY_ADAPTERS = [alchemyMAv2BSOAdapter, alchemyWalletSendCallsAdapter]
 const NO_OP_WS = (_url: string) => ({ readyState: 3, send: () => {}, close: () => {}, onopen: null, onclose: null, onerror: null, onmessage: null })
 const MONITORING_RUN_COUNT_DEFAULT = 20
+const MONITOR_INTERVAL_MS = 60 * 60 * 1000
+const STARTUP_JITTER_WINDOW_MS = 60 * 1000
+
+// Keep the four production regions in non-overlapping hourly slots. A complete
+// 20-attempt production batch currently takes about 10–12 minutes, so 15-minute
+// spacing leaves a few minutes of headroom while fitting every region into one
+// hour. The small per-process jitter avoids exact second-level alignment.
+const REGION_START_MINUTE: Record<string, number> = {
+  'us-east-1': 0,
+  'us-west-2': 15,
+  'eu-central-1': 30,
+  'ap-southeast-1': 45,
+}
 
 // Known monitoring networks. Endpoint URLs are always derived from the
 // Alchemy API key; this map only selects the viem chain definition.
@@ -37,10 +50,31 @@ export type RunOnceOptions = {
   baseEnv?: EnvSource
 }
 
+type LoopTimer = (callback: () => void, delayMs: number) => unknown
+
+export type StartLoopOptions = RunOnceOptions & {
+  now?: () => number
+  random?: () => number
+  setTimeoutFn?: LoopTimer
+  setIntervalFn?: LoopTimer
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function resolveChain(network: string): Chain {
   return KNOWN_NETWORKS[network] ?? mainnet
+}
+
+export function computeRegionalStartDelayMs(
+  region: string,
+  nowMs: number,
+  jitterMs: number,
+): number {
+  const slotMinute = REGION_START_MINUTE[region] ?? 0
+  const hourStartMs = Math.floor(nowMs / MONITOR_INTERVAL_MS) * MONITOR_INTERVAL_MS
+  let targetMs = hourStartMs + slotMinute * 60_000 + jitterMs
+  if (targetMs < nowMs) targetMs += MONITOR_INTERVAL_MS
+  return targetMs - nowMs
 }
 
 // NETWORKS is a comma-separated list (e.g. "base-mainnet,eth-mainnet,opt-mainnet"),
@@ -327,10 +361,50 @@ export function startLoop(
   credentials: MonitoringCredentials,
   metrics: MonitorMetrics,
   region: string,
-  options: RunOnceOptions = {},
+  options: StartLoopOptions = {},
 ): void {
   const runner = options.gridRunner ?? createDefaultGridRunner()
-  const opts = { ...options, gridRunner: runner }
-  void runOnce(credentials, metrics, region, opts)
-  setInterval(() => void runOnce(credentials, metrics, region, opts), 60 * 60 * 1000)
+  const opts: RunOnceOptions = { gridRunner: runner, baseEnv: options.baseEnv }
+  const now = options.now ?? Date.now
+  const random = options.random ?? Math.random
+  const setTimeoutFn = options.setTimeoutFn ?? setTimeout
+  const setIntervalFn = options.setIntervalFn ?? setInterval
+  const jitterMs = Math.floor(random() * STARTUP_JITTER_WINDOW_MS)
+  const nowMs = now()
+  const startupDelayMs = computeRegionalStartDelayMs(region, nowMs, jitterMs)
+  let runActive = false
+
+  const runScheduled = async (): Promise<void> => {
+    if (runActive) {
+      console.log(JSON.stringify({
+        event: 'run_skipped',
+        measurement_epoch: MEASUREMENT_EPOCH,
+        region,
+        reason: 'previous_run_active',
+      }))
+      return
+    }
+
+    runActive = true
+    try {
+      await runOnce(credentials, metrics, region, opts)
+    } finally {
+      runActive = false
+    }
+  }
+
+  console.log(JSON.stringify({
+    event: 'run_scheduled',
+    measurement_epoch: MEASUREMENT_EPOCH,
+    region,
+    slot_minute: REGION_START_MINUTE[region] ?? 0,
+    jitter_ms: jitterMs,
+    startup_delay_ms: startupDelayMs,
+    first_run_at: new Date(nowMs + startupDelayMs).toISOString(),
+  }))
+
+  setTimeoutFn(() => {
+    void runScheduled()
+    setIntervalFn(() => void runScheduled(), MONITOR_INTERVAL_MS)
+  }, startupDelayMs)
 }
