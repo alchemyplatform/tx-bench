@@ -142,9 +142,6 @@ function createDefaultGridRunner(): GridRunner {
     const region = env.REGION ?? env.AWS_REGION ?? null
 
     try {
-      if (useFlashblockCanonical) {
-        await flashblockOracle.ready(config.timeouts.preconfMs)
-      }
       return await runBenchmarkGrid(config, entries, canonicalOracle, flashblockOracle, (ev) => {
         // Trace every lifecycle event so CloudWatch Logs shows a run progressing
         // in real time: iteration_start → provider_done (per adapter) →
@@ -181,7 +178,7 @@ function createDefaultGridRunner(): GridRunner {
             iteration: ev.iteration,
           }))
         }
-      }, { canonicalSource: useFlashblockCanonical ? 'flashblock' : 'default' })
+      }, { canonicalSource: useFlashblockCanonical ? 'preconfirmation' : 'default' })
     } finally {
       canonicalOracle.close()
       flashblockOracle.close()
@@ -193,6 +190,7 @@ function createDefaultGridRunner(): GridRunner {
 // All monitor logs are single-line JSON so CloudWatch Logs Insights can filter
 // by `event`. Error reasons are defensively redacted again at this boundary.
 function observerApiForProvider(provider: string, network: string): string {
+  if (network === BASE_MAINNET && provider === 'alchemy-wallet-sendcalls') return 'wallet_getCallsStatus'
   if (network === BASE_MAINNET) return 'newFlashblockTransactions'
   if (provider === 'alchemy-mav2-bso') return 'eth_getUserOperationReceipt'
   if (provider === 'alchemy-wallet-sendcalls') return 'wallet_getCallsStatus'

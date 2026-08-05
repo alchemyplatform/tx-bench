@@ -68,10 +68,11 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
   const callId = ('0x' + '12'.repeat(32)) as `0x${string}`
   const txHash = ('0x' + '34'.repeat(32)) as `0x${string}`
 
-  it('polls the exact accepted call ID from pending 100 to success 200', async () => {
+  it('keeps polling the exact accepted call ID through preconfirmed 110 until confirmed 200', async () => {
     const calls: Array<{ method: string; params: readonly unknown[] }> = []
     const responses = [
       { status: 100 },
+      { status: 110 },
       { status: 200, receipts: [{ blockNumber: '0x64', transactionHash: txHash }] },
     ]
     const adapter = createAlchemyWalletSendCallsAdapter({
@@ -85,7 +86,7 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
 
     const result = await client.canonicalObserver!.watch(callId, 10_000)
 
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(3)
     expect(calls.every(call => call.method === 'wallet_getCallsStatus')).toBe(true)
     expect(calls.every(call => call.params[0] === callId)).toBe(true)
     expect(result).toEqual({
@@ -95,8 +96,40 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
       tMs: expect.any(Number),
       observation: {
         api: 'wallet_getCallsStatus',
-        pollCount: 2,
+        pollCount: 3,
         terminalStatus: '200',
+      },
+    })
+  })
+
+  it('uses status 110 as the provider-native Flashblock preconfirmation', async () => {
+    const calls: Array<{ method: string; params: readonly unknown[] }> = []
+    const responses = [
+      { status: 100 },
+      { status: 110 },
+      { status: 200, receipts: [{ blockNumber: '0x64', transactionHash: txHash }] },
+    ]
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      statusRequest: async (request) => {
+        calls.push(request)
+        return responses.shift()!
+      },
+      observerSleep: async () => {},
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.preconfirmationObserver!.watch(callId, 10_000)
+
+    expect(calls).toHaveLength(2)
+    expect(calls.every(call => call.method === 'wallet_getCallsStatus')).toBe(true)
+    expect(calls.every(call => call.params[0] === callId)).toBe(true)
+    expect(result).toEqual({
+      status: 'ok',
+      tMs: expect.any(Number),
+      observation: {
+        api: 'wallet_getCallsStatus',
+        pollCount: 2,
+        terminalStatus: '110',
       },
     })
   })

@@ -25,6 +25,10 @@ export interface AccountClient {
   // Adapter-owned observers preserve provider-specific canonical semantics and
   // keep downstream observation outside the timed submission operation.
   readonly canonicalObserver?: CanonicalObserver
+  // Optional provider-native preconfirmation observer. Base monitoring prefers
+  // this over the raw Flashblock stream when the write API exposes an
+  // authoritative preconfirmation state (for example Wallet status 110).
+  readonly preconfirmationObserver?: CanonicalObserver
   // Optional: called once after buildAccountClient and before the timed loop to
   // ensure the account is deployed on-chain (e.g. stable-owner self-bootstrap).
   // When absent, the service skips it. Excluded from all metrics.

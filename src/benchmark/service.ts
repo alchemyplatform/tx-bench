@@ -27,7 +27,7 @@ export type ProgressEvent =
   | { kind: 'iteration-done'; iteration: number }
 
 export type RunBenchmarkOptions = {
-  canonicalSource?: 'default' | 'flashblock'
+  canonicalSource?: 'default' | 'preconfirmation'
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────
@@ -40,6 +40,7 @@ export async function runBenchmarkGrid(
   onProgress?: (event: ProgressEvent) => void,
   options: RunBenchmarkOptions = {},
 ): Promise<ProviderRunResult[]> {
+  const usePreconfirmationCanonical = options.canonicalSource === 'preconfirmation'
 
   const serializeBenchmarkError = (error: unknown): string => serializeErrorRedacted(
     error,
@@ -62,6 +63,24 @@ export async function runBenchmarkGrid(
     })
   )
 
+  // Only modalities without a provider-native preconfirmation signal depend
+  // on the shared Flashblock subscription. Gate those providers before any
+  // timed write while allowing Wallet status-based measurements to proceed if
+  // the WebSocket is unavailable.
+  let flashblockReadyPromise: Promise<void> | undefined
+  await Promise.allSettled(
+    providers.map(async ({ row }) => {
+      const client = clientMap.get(row.id)
+      if (!client || !usePreconfirmationCanonical || client.preconfirmationObserver) return
+      try {
+        flashblockReadyPromise ??= flashblockOracle.ready(config.timeouts.preconfMs)
+        await flashblockReadyPromise
+      } catch (e) {
+        buildErrors.set(row.id, serializeBenchmarkError(e))
+      }
+    })
+  )
+
   // Bootstrap phase: call ensureDeployed() on each client that exposes it.
   // This is excluded from all metrics (runs before the timed loop). A bootstrap
   // failure is treated the same as a build failure — all timed iterations for
@@ -74,7 +93,7 @@ export async function runBenchmarkGrid(
   await Promise.allSettled(
     providers.map(async ({ row }) => {
       const client = clientMap.get(row.id)
-      if (!client || typeof client.ensureDeployed !== 'function') return
+      if (!client || buildErrors.has(row.id) || typeof client.ensureDeployed !== 'function') return
       try {
         await withTimeout((signal) => client.ensureDeployed!(signal), BOOTSTRAP_PHASE_TIMEOUT_MS, `bootstrap timeout for ${row.id}`)
       } catch (e) {
@@ -114,8 +133,7 @@ export async function runBenchmarkGrid(
         try {
           // The generic oracle needs a pre-submit block bound. Adapter-owned
           // observers operate directly on the accepted identifier and skip it.
-          const useFlashblockCanonical = options.canonicalSource === 'flashblock'
-          const fromBlock = client.canonicalObserver || useFlashblockCanonical
+          const fromBlock = client.canonicalObserver || usePreconfirmationCanonical
             ? undefined
             : await canonicalOracle.getBlockNumber()
 
@@ -127,7 +145,27 @@ export async function runBenchmarkGrid(
           let canonical: CanonicalResult
           let preconf: FlashblockResult
 
-          if (useFlashblockCanonical) {
+          if (usePreconfirmationCanonical && client.preconfirmationObserver) {
+            const observerApi = client.preconfirmationObserver.api
+            const [observedCanonical, observedPreconf] = await Promise.all([
+              client.preconfirmationObserver.watch(
+                sponsored.canonicalIdentifier ?? sponsored.userOpHash,
+                config.timeouts.preconfMs,
+              ).catch((error): CanonicalResult => ({
+                status: 'observer-error',
+                reason: serializeBenchmarkError(error),
+                observation: {
+                  api: observerApi,
+                  pollCount: 0,
+                  errorClass: error instanceof Error ? error.name : typeof error,
+                },
+              })),
+              flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs)
+                .catch(() => ({ status: 'not-observed' as const })),
+            ])
+            canonical = observedCanonical
+            preconf = observedPreconf
+          } else if (usePreconfirmationCanonical) {
             try {
               preconf = await flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs)
               canonical = canonicalFromFlashblock(preconf)

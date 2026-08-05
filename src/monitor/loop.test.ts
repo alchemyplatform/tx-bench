@@ -524,6 +524,23 @@ describe('runOnce', () => {
     expect(canonicalCount?.labels['observer_api']).toBe('newFlashblockTransactions')
   })
 
+  it('labels Base Wallet canonical samples with the provider status observer', async () => {
+    const metrics = makeMetrics()
+    const records = [makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { canonical: 250 }, 0)]
+    const results = [makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', records, 0)]
+
+    await runOnce(CREDENTIALS, metrics, REGION, {
+      gridRunner: mockGridRunner(results) as never,
+      baseEnv: BASE_ENV,
+    })
+
+    const canonicalCount = (await metrics.stageLatency.get()).values.find(value =>
+      value.metricName === 'txe_bench_stage_latency_seconds_count'
+      && value.labels['stage'] === 'canonical',
+    )
+    expect(canonicalCount?.labels['observer_api']).toBe('wallet_getCallsStatus')
+  })
+
   it('ignores non-Alchemy neutral overrides and always derives the Alchemy URL', async () => {
     const metrics = makeMetrics()
     const capturedEnvs: EnvSource[] = []

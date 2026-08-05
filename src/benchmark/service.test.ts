@@ -208,13 +208,14 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
     expect(result.records[0].acceptedAtMs).toBe(500)
   })
 
-  it('uses each Flashblock outcome as the Base canonical finish line when requested', async () => {
+  it('uses each Flashblock outcome as the Base canonical finish line when no provider preconfirmation observer exists', async () => {
     const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
     const canonicalIdentifier = ('0x' + 'ab'.repeat(32)) as `0x${string}`
+    const lifecycle: string[] = []
     const ownedWatch = mock(async () => { throw new Error('provider observer must not run') })
     const adapter: ProviderAdapter = {
-      id: 'alchemy-wallet-sendcalls',
-      protocolClass: 'wallet-sendcalls',
+      id: 'alchemy-mav2-bso',
+      protocolClass: '4337-bundler',
       accountTypeLabel: 'Test Account',
       async buildAccountClient() {
         return {
@@ -223,10 +224,11 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
             watch: ownedWatch,
           },
           async sendSponsored() {
+            lifecycle.push('send')
             return {
               userOpHash,
               canonicalIdentifier,
-              protocolClass: 'wallet-sendcalls' as const,
+              protocolClass: '4337-bundler' as const,
               submitMs: 80,
               acceptedAtMs: 500,
               accountAddress: ('0x' + '78'.repeat(20)) as `0x${string}`,
@@ -249,17 +251,20 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
       if (outcome instanceof Error) throw outcome
       return outcome
     })
+    const flashblockReady = mock(async () => { lifecycle.push('ready') })
 
     const [result] = await runBenchmarkGrid(
       { ...SINGLE_RUN_CONFIG, runCount: flashblockOutcomes.length },
-      [{ row: makeRow('alchemy-wallet-sendcalls', 'wallet-sendcalls'), adapter }],
+      [{ row: makeRow('alchemy-mav2-bso', '4337-bundler'), adapter }],
       { getBlockNumber: fallbackGetBlock, watch: fallbackWatch, close() {} },
-      { async ready() {}, watch: flashblockWatch, close() {} },
+      { ready: flashblockReady, watch: flashblockWatch, close() {} },
       undefined,
-      { canonicalSource: 'flashblock' },
+      { canonicalSource: 'preconfirmation' },
     )
 
     expect(ownedWatch).not.toHaveBeenCalled()
+    expect(flashblockReady).toHaveBeenCalledTimes(1)
+    expect(lifecycle[0]).toBe('ready')
     expect(fallbackGetBlock).not.toHaveBeenCalled()
     expect(fallbackWatch).not.toHaveBeenCalled()
     expect(flashblockWatch).toHaveBeenCalledTimes(flashblockOutcomes.length)
@@ -285,6 +290,76 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
     expect(result.records[3].stages.canonical).toEqual({
       status: 'observer-error',
       reason: expect.stringContaining('flashblock socket failed'),
+    })
+  })
+
+  it('uses the provider-native Wallet status observer for Base canonical timing', async () => {
+    const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
+    const callId = ('0x' + 'ab'.repeat(32)) as `0x${string}`
+    const confirmedWatch = mock(async () => { throw new Error('confirmed observer must not run') })
+    const preconfirmedWatch = mock(async () => ({
+      status: 'ok' as const,
+      tMs: 700,
+      observation: {
+        api: 'wallet_getCallsStatus' as const,
+        pollCount: 2,
+        terminalStatus: '110',
+      },
+    }))
+    const flashblockWatch = mock(async () => ({
+      status: 'ok' as const,
+      blockNumber: 123n,
+      flashblockIndex: 4,
+      tMs: 680,
+    }))
+    const flashblockReady = mock(async () => { throw new Error('Wallet status path must not require WebSocket readiness') })
+    const adapter: ProviderAdapter = {
+      id: 'alchemy-wallet-sendcalls',
+      protocolClass: 'wallet-sendcalls',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          canonicalObserver: {
+            api: 'wallet_getCallsStatus' as const,
+            watch: confirmedWatch,
+          },
+          preconfirmationObserver: {
+            api: 'wallet_getCallsStatus' as const,
+            watch: preconfirmedWatch,
+          },
+          async sendSponsored() {
+            return {
+              userOpHash,
+              canonicalIdentifier: callId,
+              protocolClass: 'wallet-sendcalls' as const,
+              submitMs: 80,
+              acceptedAtMs: 500,
+              accountAddress: ('0x' + '78'.repeat(20)) as `0x${string}`,
+            }
+          },
+        }
+      },
+    }
+
+    const [result] = await runBenchmarkGrid(
+      SINGLE_RUN_CONFIG,
+      [{ row: makeRow('alchemy-wallet-sendcalls', 'wallet-sendcalls'), adapter }],
+      { async getBlockNumber() { return 1n }, async watch() { throw new Error('fallback must not run') }, close() {} },
+      { ready: flashblockReady, watch: flashblockWatch, close() {} },
+      undefined,
+      { canonicalSource: 'preconfirmation' },
+    )
+
+    expect(confirmedWatch).not.toHaveBeenCalled()
+    expect(flashblockReady).not.toHaveBeenCalled()
+    expect(preconfirmedWatch).toHaveBeenCalledWith(callId, 5_000)
+    expect(flashblockWatch).toHaveBeenCalledWith(userOpHash, 5_000)
+    expect(result.records[0].stages.preconf).toEqual({ status: 'ok', ms: 180 })
+    expect(result.records[0].stages.canonical).toEqual({ status: 'ok', ms: 200 })
+    expect(result.records[0].canonicalObservation).toEqual({
+      api: 'wallet_getCallsStatus',
+      pollCount: 2,
+      terminalStatus: '110',
     })
   })
 
