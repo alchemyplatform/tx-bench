@@ -20,6 +20,7 @@ const NO_OP_WS = (_url: string) => ({ readyState: 3, send: () => {}, close: () =
 const MONITORING_RUN_COUNT_DEFAULT = 20
 const MONITOR_INTERVAL_MS = 60 * 60 * 1000
 const STARTUP_JITTER_WINDOW_MS = 60 * 1000
+const BASE_MAINNET = 'base-mainnet'
 
 // Keep the four production regions in non-overlapping hourly slots. A complete
 // 20-attempt production batch currently takes about 10–12 minutes, so 15-minute
@@ -94,10 +95,15 @@ function resolveAlchemyRpcUrl(
   return `https://${network}.g.alchemy.com/v2/${credentials.ALCHEMY_API_KEY}`
 }
 
+function resolveAlchemyFlashblockWsUrl(credentials: MonitoringCredentials): string {
+  return `wss://${BASE_MAINNET}.g.alchemy.com/v2/${credentials.ALCHEMY_API_KEY}`
+}
+
 function buildEnv(credentials: MonitoringCredentials, baseEnv: EnvSource): EnvSource {
   const sanitizedBaseEnv = { ...baseEnv }
   delete sanitizedBaseEnv.NEUTRAL_RPC_URL
   delete sanitizedBaseEnv.NEUTRAL_RPC_URLS
+  delete sanitizedBaseEnv.NEUTRAL_FLASHBLOCK_WS_URL
   delete sanitizedBaseEnv.ALCHEMY_RPC_URL
   return {
     ...sanitizedBaseEnv,
@@ -124,12 +130,21 @@ function createDefaultGridRunner(): GridRunner {
     const chain = resolveChain(config.network)
     const client = createPublicClient({ chain, transport: http(config.neutral.rpcUrl) })
     const canonicalOracle = createCanonicalOracle(client)
-    const flashblockOracle = createFlashblockOracle('wss://no-op', { ws: NO_OP_WS })
+    const useFlashblockCanonical = config.network === BASE_MAINNET
+    if (useFlashblockCanonical && !config.neutral.flashblockWsUrl) {
+      throw new Error('Base monitoring requires a Flashblocks WebSocket endpoint')
+    }
+    const flashblockOracle = useFlashblockCanonical
+      ? createFlashblockOracle(config.neutral.flashblockWsUrl!)
+      : createFlashblockOracle('wss://no-op', { ws: NO_OP_WS })
     const entries = buildAdapterEntries(env)
 
     const region = env.REGION ?? env.AWS_REGION ?? null
 
     try {
+      if (useFlashblockCanonical) {
+        await flashblockOracle.ready(config.timeouts.preconfMs)
+      }
       return await runBenchmarkGrid(config, entries, canonicalOracle, flashblockOracle, (ev) => {
         // Trace every lifecycle event so CloudWatch Logs shows a run progressing
         // in real time: iteration_start → provider_done (per adapter) →
@@ -166,7 +181,7 @@ function createDefaultGridRunner(): GridRunner {
             iteration: ev.iteration,
           }))
         }
-      })
+      }, { canonicalSource: useFlashblockCanonical ? 'flashblock' : 'default' })
     } finally {
       canonicalOracle.close()
       flashblockOracle.close()
@@ -177,7 +192,8 @@ function createDefaultGridRunner(): GridRunner {
 // ── Structured logging ──────────────────────────────────────────────────────
 // All monitor logs are single-line JSON so CloudWatch Logs Insights can filter
 // by `event`. Error reasons are defensively redacted again at this boundary.
-function observerApiForProvider(provider: string): string {
+function observerApiForProvider(provider: string, network: string): string {
+  if (network === BASE_MAINNET) return 'newFlashblockTransactions'
   if (provider === 'alchemy-mav2-bso') return 'eth_getUserOperationReceipt'
   if (provider === 'alchemy-wallet-sendcalls') return 'wallet_getCallsStatus'
   return 'generic-log-scan'
@@ -218,7 +234,7 @@ function logRunResults(
     }))
 
     for (const rec of records) {
-      const observerApi = rec.canonicalObservation?.api ?? observerApiForProvider(row.id)
+      const observerApi = rec.canonicalObservation?.api ?? observerApiForProvider(row.id, network)
       const attemptStages = Object.fromEntries(expectedStages(rec.protocolClass).map((stage) => {
         const value = rec.stages[stage] ?? { status: 'not-observed' as const }
         return [stage, {
@@ -268,7 +284,7 @@ function logRunResults(
 function emitRunMetrics(results: ProviderRunResult[], metrics: MonitorMetrics, network: string, region: string): void {
   for (const { records, metrics: pm } of results) {
     const observerApi = records.find(record => record.canonicalObservation)?.canonicalObservation?.api
-      ?? observerApiForProvider(pm.provider)
+      ?? observerApiForProvider(pm.provider, network)
     const summaryLabels = {
       protocol_class: pm.protocolClass,
       provider_id: pm.provider,
@@ -313,6 +329,9 @@ async function runOnceForNetwork(
     NETWORK: network,
     NEUTRAL_RPC_URL: alchemyRpcUrl,
     ALCHEMY_RPC_URL: alchemyRpcUrl,
+    ...(network === BASE_MAINNET && {
+      NEUTRAL_FLASHBLOCK_WS_URL: resolveAlchemyFlashblockWsUrl(credentials),
+    }),
   }
   const config = loadConfig(env)
 

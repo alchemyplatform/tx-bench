@@ -55,6 +55,8 @@ Plus `OWNER_PRIVATE_KEY` (required for the monitor; enables stable deterministic
 
 > **Neutral oracle (Alchemy-only monitoring):** when `NEUTRAL_RPC_URL` is unset, the canonical oracle defaults to the Alchemy chain-specific URL (`https://<NETWORK>.g.alchemy.com/v2/<API key>`). This is allowed because all monitor adapters are Alchemy, so no contestant is disadvantaged (the preflight emits a warning, not an error). Set `NEUTRAL_RPC_URL` to a truly independent node ONLY for mixed-provider runs (Alchemy + Pimlico/ZeroDev) where neutrality is required for fair cross-provider timing.
 >
+> **Base monitor finish line:** for `base-mainnet`, the recurring Alchemy monitor uses the first matching `newFlashblockTransactions` event as the historical `canonical` stage finish line. This is a Flashblock preconfirmation, not Base L2 block inclusion. Other networks retain their adapter-owned status observers, and interactive CLI benchmarks continue to report Flashblock preconfirmation and canonical inclusion separately. The monitor labels this source as `newFlashblockTransactions` and uses measurement epoch `base-flashblocks-v3` so dashboards do not mix the two definitions.
+>
 > **RPC routing:** `NEUTRAL_RPC_URL` is used exclusively by the canonical oracle (`getLogs`, `getBlockNumber`) — neutrality matters there. Provider-specific pre-flight reads (nonce lookups, contract code fetches) are routed separately: Pimlico reads use the Alchemy RPC (Pimlico's bundler URL does not support `eth_call`), and ZeroDev reads use ZeroDev's own RPC (it is a full node).
 
 ---

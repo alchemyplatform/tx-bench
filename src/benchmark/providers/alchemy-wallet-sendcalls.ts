@@ -259,7 +259,11 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     // ({ signedCalls }). The direct pass matches the type definition and is used
     // here. This must be verified at runtime against the real SDK — if the
     // wrapped form is required, change to sendPreparedCalls({ ...signed }).
-    const { id: callId } = await client.sendPreparedCalls(signed)
+    const sent = await client.sendPreparedCalls(signed)
+    const callId = sent.id
+    const userOpHash = sent.details?.type === 'user-operation'
+      ? sent.details.data.hash
+      : callId
 
     const tSendEnd = performance.now()
     const sendMs = tSendEnd - tSendStart
@@ -270,7 +274,8 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     const submitMs = prepareMs + sendMs
 
     return {
-      userOpHash: callId as `0x${string}`,
+      userOpHash,
+      canonicalIdentifier: callId,
       protocolClass: 'wallet-sendcalls',
       submitMs,
       prepareMs,

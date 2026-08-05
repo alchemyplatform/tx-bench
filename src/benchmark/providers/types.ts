@@ -4,6 +4,10 @@ import type { CanonicalObserver } from '../oracle/canonical.js'
 
 export type SponsoredResult = {
   userOpHash: `0x${string}`
+  // Provider-specific identifier used by an adapter-owned status observer.
+  // Wallet API writes expose a call ID here while userOpHash retains the
+  // underlying UserOperation hash required by chain and Flashblock observers.
+  canonicalIdentifier?: `0x${string}`
   protocolClass: ProtocolClass
   submitMs: number
   accountAddress: `0x${string}`

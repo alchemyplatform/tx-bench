@@ -1,6 +1,6 @@
 import { Counter, Gauge, Histogram, Registry } from 'prom-client'
 
-export const MEASUREMENT_EPOCH = 'alchemy-status-v2'
+export const MEASUREMENT_EPOCH = 'base-flashblocks-v3'
 
 const SUMMARY_LABELS = [
   'protocol_class', 'provider_id', 'observer_api', 'measurement_epoch', 'network', 'region',

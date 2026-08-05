@@ -585,7 +585,10 @@ describe('alchemyWalletSendCallsAdapter — prepare/send stage refactor', () => 
   function makePrepareSendMock(opts?: {
     prepareCallsResult?: unknown
     signPreparedCallsResult?: unknown
-    sendPreparedCallsResult?: { id: string }
+    sendPreparedCallsResult?: {
+      id: string
+      details?: { type: 'user-operation'; data: { hash: string } } | { type: 'delegation' }
+    }
     waitForCallsStatusResult?: unknown
     prepareCallsThrows?: string
     signPreparedCallsThrows?: string
@@ -631,6 +634,28 @@ describe('alchemyWalletSendCallsAdapter — prepare/send stage refactor', () => 
     await client.sendSponsored()
 
     expect(callOrder).toEqual(['prepareCalls', 'signPreparedCalls', 'sendPreparedCalls'])
+  })
+
+  it('returns the UserOperation hash for Flashblock observation and the call ID for status polling', async () => {
+    const callId = ('0x' + '1'.repeat(64)) as `0x${string}`
+    const userOpHash = ('0x' + '2'.repeat(64)) as `0x${string}`
+    const { mockClient } = makePrepareSendMock({
+      sendPreparedCallsResult: {
+        id: callId,
+        details: { type: 'user-operation', data: { hash: userOpHash } },
+      },
+    })
+    const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      createClient: mockCreateClient,
+      generateKey: () => ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+    })
+
+    const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
+    const result = await client.sendSponsored()
+
+    expect(result.userOpHash).toBe(userOpHash)
+    expect(result.canonicalIdentifier).toBe(callId)
   })
 
   it('happy path: prepareMs covers prepare+sign, sendMs covers send, submitMs = prepareMs + sendMs', async () => {

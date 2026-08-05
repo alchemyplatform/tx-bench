@@ -270,7 +270,7 @@ describe('runOnce', () => {
     )
     expect(canonicalError?.value).toBe(1)
     expect(canonicalError?.labels['observer_api']).toBe('wallet_getCallsStatus')
-    expect(canonicalError?.labels['measurement_epoch']).toBe('alchemy-status-v2')
+    expect(canonicalError?.labels['measurement_epoch']).toBe('base-flashblocks-v3')
   })
 
   it('emits exactly one canonical outcome per attempt for reconciliation', async () => {
@@ -483,6 +483,45 @@ describe('runOnce', () => {
 
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
     expect(capturedEnvs[0]?.NEUTRAL_RPC_URL).toBe('https://eth-mainnet.g.alchemy.com/v2/test-key')
+  })
+
+  it('configures the Alchemy Flashblocks WebSocket only for Base monitoring', async () => {
+    const metrics = makeMetrics()
+    const capturedEnvs: EnvSource[] = []
+    const runner = mock(async (_config: Config, env: EnvSource) => {
+      capturedEnvs.push(env)
+      return []
+    })
+
+    await runOnce(CREDENTIALS, metrics, REGION, {
+      gridRunner: runner as never,
+      baseEnv: {
+        NETWORKS: 'base-mainnet,eth-mainnet',
+        NEUTRAL_FLASHBLOCK_WS_URL: 'wss://untrusted.example.com',
+      },
+    })
+
+    const byNetwork = new Map(capturedEnvs.map(env => [env.NETWORK, env]))
+    expect(byNetwork.get('base-mainnet')?.NEUTRAL_FLASHBLOCK_WS_URL)
+      .toBe('wss://base-mainnet.g.alchemy.com/v2/test-key')
+    expect(byNetwork.get('eth-mainnet')?.NEUTRAL_FLASHBLOCK_WS_URL).toBeUndefined()
+  })
+
+  it('labels Base canonical samples with the Flashblocks observer', async () => {
+    const metrics = makeMetrics()
+    const records = [makeRecord('alchemy-mav2-bso', '4337-bundler', { canonical: 250 }, 0)]
+    const results = [makeProviderResult('alchemy-mav2-bso', '4337-bundler', records, 0)]
+
+    await runOnce(CREDENTIALS, metrics, REGION, {
+      gridRunner: mockGridRunner(results) as never,
+      baseEnv: BASE_ENV,
+    })
+
+    const canonicalCount = (await metrics.stageLatency.get()).values.find(value =>
+      value.metricName === 'txe_bench_stage_latency_seconds_count'
+      && value.labels['stage'] === 'canonical',
+    )
+    expect(canonicalCount?.labels['observer_api']).toBe('newFlashblockTransactions')
   })
 
   it('ignores non-Alchemy neutral overrides and always derives the Alchemy URL', async () => {

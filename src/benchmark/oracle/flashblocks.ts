@@ -26,6 +26,8 @@ export interface FlashblocksWs {
 export type WsFactory = (url: string) => FlashblocksWs
 
 export interface FlashblockOracle {
+  /** Resolve after the server acknowledges the Flashblock subscription. */
+  ready(timeoutMs: number): Promise<void>
   /** Watch for a preconf of userOpHash; resolves when observed or timed out. */
   watch(userOpHash: `0x${string}`, timeoutMs: number): Promise<FlashblockResult>
   close(): void
@@ -72,6 +74,12 @@ type RecentFlashblock = {
   expiry: number
 }
 
+type ReadyWaiter = {
+  resolve: () => void
+  reject: (error: Error) => void
+  timer: ReturnType<typeof setTimeout>
+}
+
 // If no message arrives for this long while watches are pending, treat subscription as stale
 const STALE_THRESHOLD_MS = 4_000
 
@@ -79,6 +87,7 @@ export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory })
   const createWs = deps?.ws ?? ((url: string) => new WebSocket(url) as unknown as FlashblocksWs)
 
   const pending = new Map<string, PendingWatch>()
+  const readyWaiters = new Set<ReadyWaiter>()
   const recent: RecentFlashblock[] = []   // lookback ring buffer
   let socket: FlashblocksWs | null = null
   let subscriptionId: string | null = null
@@ -125,6 +134,11 @@ export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory })
     // Subscription confirmation
     if ('result' in msg && typeof (msg as RpcResponse).result === 'string' && 'id' in msg) {
       subscriptionId = (msg as RpcResponse).result as string
+      for (const waiter of readyWaiters) {
+        clearTimeout(waiter.timer)
+        waiter.resolve()
+      }
+      readyWaiters.clear()
       return
     }
 
@@ -182,6 +196,23 @@ export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory })
   connect()
 
   return {
+    ready(timeoutMs) {
+      if (subscriptionId) return Promise.resolve()
+      if (closed) return Promise.reject(new Error('Flashblock oracle is closed'))
+
+      return new Promise<void>((resolve, reject) => {
+        const waiter: ReadyWaiter = {
+          resolve,
+          reject,
+          timer: setTimeout(() => {
+            readyWaiters.delete(waiter)
+            reject(new Error('Flashblock subscription was not acknowledged before the timeout'))
+          }, timeoutMs),
+        }
+        readyWaiters.add(waiter)
+      })
+    },
+
     watch(userOpHash, timeoutMs) {
       return new Promise<FlashblockResult>(resolve => {
         const key = userOpHash.toLowerCase()
@@ -226,6 +257,11 @@ export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory })
 
     close() {
       closed = true
+      for (const waiter of readyWaiters) {
+        clearTimeout(waiter.timer)
+        waiter.reject(new Error('Flashblock oracle closed before the subscription was acknowledged'))
+      }
+      readyWaiters.clear()
       sweepExpired()
       for (const [, watch] of pending) watch.resolve({ status: 'not-observed' })
       pending.clear()

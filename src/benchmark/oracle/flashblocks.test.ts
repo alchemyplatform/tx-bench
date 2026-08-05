@@ -17,11 +17,13 @@ class MockWs implements FlashblocksWs {
 
   sent: string[] = []
 
+  constructor(private readonly autoAcknowledge = true) {}
+
   send(data: string) {
     this.sent.push(data)
     // Auto-respond to eth_subscribe with a subscription ID
     const msg = JSON.parse(data)
-    if (msg.method === 'eth_subscribe') {
+    if (msg.method === 'eth_subscribe' && this.autoAcknowledge) {
       queueMicrotask(() =>
         this.simulateMessage(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: '0xsub1' }))
       )
@@ -81,10 +83,10 @@ class MockWs implements FlashblocksWs {
   }
 }
 
-function makeFactory(): { factory: WsFactory; instances: MockWs[] } {
+function makeFactory({ autoAcknowledge = true } = {}): { factory: WsFactory; instances: MockWs[] } {
   const instances: MockWs[] = []
   const factory: WsFactory = (_url: string) => {
-    const ws = new MockWs()
+    const ws = new MockWs(autoAcknowledge)
     instances.push(ws)
     // Simulate connection open on next tick
     queueMicrotask(() => ws.simulateOpen())
@@ -96,6 +98,21 @@ function makeFactory(): { factory: WsFactory; instances: MockWs[] } {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('flashblock oracle — happy path', () => {
+  it('becomes ready only after the subscription is acknowledged', async () => {
+    const { factory, instances } = makeFactory({ autoAcknowledge: false })
+    const oracle = createFlashblockOracle('wss://mock', { ws: factory })
+    let isReady = false
+    const ready = oracle.ready(1_000).then(() => { isReady = true })
+
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(isReady).toBe(false)
+    instances[0].simulateMessage(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0xsub1' }))
+
+    await ready
+    expect(isReady).toBe(true)
+    oracle.close()
+  })
+
   it('resolves ok when a matching flashblock message arrives', async () => {
     const { factory, instances } = makeFactory()
     const oracle = createFlashblockOracle('wss://mock', { ws: factory })
@@ -143,6 +160,14 @@ describe('flashblock oracle — happy path', () => {
 })
 
 describe('flashblock oracle — timeout', () => {
+  it('rejects readiness when the subscription is not acknowledged', async () => {
+    const { factory } = makeFactory({ autoAcknowledge: false })
+    const oracle = createFlashblockOracle('wss://mock', { ws: factory })
+
+    await expect(oracle.ready(20)).rejects.toThrow('not acknowledged')
+    oracle.close()
+  })
+
   it('resolves not-observed when no flashblock arrives within the window', async () => {
     const { factory } = makeFactory()
     const oracle = createFlashblockOracle('wss://mock', { ws: factory })
