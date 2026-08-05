@@ -66,8 +66,10 @@ export function renderTable(output: RunOutput): string {
   lines.push('')
   lines.push('  Columns: median / p95 across successful runs.')
   if (preconfAvailable) {
+    lines.push('  Flashblock: accepted → matching UserOperationEvent in newFlashblockTransactions (executed/preconfirmed; not yet an L2 block).')
     lines.push('  Flashblock timing depends on runner–node peering; cross-provider equality is the robust claim.')
   }
+  lines.push('  Canonical: accepted → confirmed L2 inclusion with block number + tx hash (MAv2 BSO: eth_getUserOperationReceipt; not L1 finality).')
   lines.push('  Account types differ across providers (Light Account vs Safe vs Kernel) — not equivalent weight.')
 
   // ── Intent-relay exhibit ─────────────────────────────────────────────────────

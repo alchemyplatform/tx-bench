@@ -64,22 +64,18 @@ export async function runBenchmarkGrid(
   )
 
   // Only modalities without a provider-native preconfirmation signal depend
-  // on the shared Flashblock subscription. Gate those providers before any
-  // timed write while allowing Wallet status-based measurements to proceed if
-  // the WebSocket is unavailable.
-  let flashblockReadyPromise: Promise<void> | undefined
-  await Promise.allSettled(
-    providers.map(async ({ row }) => {
-      const client = clientMap.get(row.id)
-      if (!client || !usePreconfirmationCanonical || client.preconfirmationObserver) return
-      try {
-        flashblockReadyPromise ??= flashblockOracle.ready(config.timeouts.preconfMs)
-        await flashblockReadyPromise
-      } catch (e) {
-        buildErrors.set(row.id, serializeBenchmarkError(e))
-      }
-    })
-  )
+  // on the shared Flashblock subscription. Pre-warm it before any timed write,
+  // but keep confirmed inclusion available as the fallback if readiness fails.
+  const needsRawFlashblocks = usePreconfirmationCanonical && providers.some(({ row }) => {
+    const client = clientMap.get(row.id)
+    return client != null && client.preconfirmationObserver == null
+  })
+  const rawFlashblocksReady = needsRawFlashblocks
+    ? await flashblockOracle.ready(config.timeouts.preconfMs).then(
+        () => true,
+        () => false,
+      )
+    : false
 
   // Bootstrap phase: call ensureDeployed() on each client that exposes it.
   // This is excluded from all metrics (runs before the timed loop). A bootstrap
@@ -133,7 +129,7 @@ export async function runBenchmarkGrid(
         try {
           // The generic oracle needs a pre-submit block bound. Adapter-owned
           // observers operate directly on the accepted identifier and skip it.
-          const fromBlock = client.canonicalObserver || usePreconfirmationCanonical
+          const fromBlock = client.canonicalObserver
             ? undefined
             : await canonicalOracle.getBlockNumber()
 
@@ -145,8 +141,26 @@ export async function runBenchmarkGrid(
           let canonical: CanonicalResult
           let preconf: FlashblockResult
 
+          const observerApi = client.canonicalObserver?.api ?? 'generic-log-scan'
+          const observeConfirmedCanonical = (): Promise<CanonicalResult> => (
+            client.canonicalObserver
+              ? client.canonicalObserver.watch(
+                  sponsored.canonicalIdentifier ?? sponsored.userOpHash,
+                  config.timeouts.canonicalMs,
+                )
+              : canonicalOracle.watch(sponsored.userOpHash, fromBlock!, config.timeouts.canonicalMs)
+          ).catch((error): CanonicalResult => ({
+            status: 'observer-error',
+            reason: serializeBenchmarkError(error),
+            observation: {
+              api: observerApi,
+              pollCount: 0,
+              errorClass: error instanceof Error ? error.name : typeof error,
+            },
+          }))
+
           if (usePreconfirmationCanonical && client.preconfirmationObserver) {
-            const observerApi = client.preconfirmationObserver.api
+            const preconfirmationObserverApi = client.preconfirmationObserver.api
             const [observedCanonical, observedPreconf] = await Promise.all([
               client.preconfirmationObserver.watch(
                 sponsored.canonicalIdentifier ?? sponsored.userOpHash,
@@ -155,7 +169,7 @@ export async function runBenchmarkGrid(
                 status: 'observer-error',
                 reason: serializeBenchmarkError(error),
                 observation: {
-                  api: observerApi,
+                  api: preconfirmationObserverApi,
                   pollCount: 0,
                   errorClass: error instanceof Error ? error.name : typeof error,
                 },
@@ -166,40 +180,20 @@ export async function runBenchmarkGrid(
             canonical = observedCanonical
             preconf = observedPreconf
           } else if (usePreconfirmationCanonical) {
-            try {
-              preconf = await flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs)
-              canonical = canonicalFromFlashblock(preconf)
-            } catch (error) {
-              preconf = { status: 'not-observed' }
-              canonical = {
-                status: 'observer-error',
-                reason: serializeBenchmarkError(error),
-                observation: {
-                  api: 'newFlashblockTransactions',
-                  pollCount: 0,
-                  errorClass: error instanceof Error ? error.name : typeof error,
-                },
-              }
-            }
+            const [confirmedCanonical, observedPreconf] = await Promise.all([
+              observeConfirmedCanonical(),
+              rawFlashblocksReady
+                ? flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs)
+                    .catch(() => ({ status: 'not-observed' as const }))
+                : Promise.resolve({ status: 'not-observed' as const }),
+            ])
+            preconf = observedPreconf
+            canonical = preconf.status === 'ok'
+              ? canonicalFromFlashblock(preconf)
+              : confirmedCanonical
           } else {
-            const observerApi = client.canonicalObserver?.api ?? 'generic-log-scan'
-            const canonicalPromise: Promise<CanonicalResult> = client.canonicalObserver
-              ? client.canonicalObserver.watch(
-                  sponsored.canonicalIdentifier ?? sponsored.userOpHash,
-                  config.timeouts.canonicalMs,
-                )
-              : canonicalOracle.watch(sponsored.userOpHash, fromBlock!, config.timeouts.canonicalMs)
-
             const [observedCanonical, observedPreconf] = await Promise.all([
-              canonicalPromise.catch((error): CanonicalResult => ({
-                status: 'observer-error',
-                reason: serializeBenchmarkError(error),
-                observation: {
-                  api: observerApi,
-                  pollCount: 0,
-                  errorClass: error instanceof Error ? error.name : typeof error,
-                },
-              })),
+              observeConfirmedCanonical(),
               flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs)
                 .catch(() => ({ status: 'not-observed' as const })),
             ])
@@ -245,27 +239,17 @@ export async function runBenchmarkGrid(
   })
 }
 
-function canonicalFromFlashblock(result: FlashblockResult): CanonicalResult {
-  const observation = {
-    api: 'newFlashblockTransactions' as const,
-    pollCount: 0,
-  }
-  switch (result.status) {
-    case 'ok':
-      return {
-        status: 'ok',
-        blockNumber: result.blockNumber,
-        tMs: result.tMs,
-        observation,
-      }
-    case 'not-observed':
-      return { status: 'timed-out', observation }
-    case 'not-attributable':
-      return {
-        status: 'integrity-fail',
-        reason: 'inclusion not attributable in Flashblock stream',
-        observation,
-      }
+function canonicalFromFlashblock(
+  result: Extract<FlashblockResult, { status: 'ok' }>,
+): CanonicalResult {
+  return {
+    status: 'ok',
+    blockNumber: result.blockNumber,
+    tMs: result.tMs,
+    observation: {
+      api: 'newFlashblockTransactions',
+      pollCount: 0,
+    },
   }
 }
 

@@ -281,33 +281,45 @@ function logRunResults(
 
 function emitRunMetrics(results: ProviderRunResult[], metrics: MonitorMetrics, network: string, region: string): void {
   for (const { records, metrics: pm } of results) {
-    const observerApi = records.find(record => record.canonicalObservation)?.canonicalObservation?.api
-      ?? observerApiForProvider(pm.provider, network)
-    const summaryLabels = {
-      protocol_class: pm.protocolClass,
-      provider_id: pm.provider,
-      observer_api: observerApi,
-      measurement_epoch: MEASUREMENT_EPOCH,
-      network,
-      region,
+    const recordsByObserver = new Map<string, RunRecord[]>()
+    for (const record of records) {
+      const observerApi = record.canonicalObservation?.api
+        ?? observerApiForProvider(pm.provider, network)
+      const observerRecords = recordsByObserver.get(observerApi) ?? []
+      observerRecords.push(record)
+      recordsByObserver.set(observerApi, observerRecords)
     }
 
-    // Counters are cumulative across runs; Prometheus `rate()` / `increase()`
-    // derive windowed attempt counts and success rates from them.
-    metrics.attemptsTotal.inc(summaryLabels, records.length)
-    metrics.failuresTotal.inc(summaryLabels, pm.failureCount)
+    for (const [observerApi, observerRecords] of recordsByObserver) {
+      const summaryLabels = {
+        protocol_class: pm.protocolClass,
+        provider_id: pm.provider,
+        observer_api: observerApi,
+        measurement_epoch: MEASUREMENT_EPOCH,
+        network,
+        region,
+      }
 
-    for (const rec of records) {
-      for (const stage of expectedStages(rec.protocolClass)) {
-        const value = rec.stages[stage] ?? { status: 'not-observed' as const }
-        metrics.stageOutcomesTotal.inc({ ...summaryLabels, stage, outcome: value.status })
-        if (value.status === 'ok' && value.ms != null) {
-          metrics.stageLatency.observe({ ...summaryLabels, stage }, value.ms / 1000)
+      // Counters are cumulative across runs; Prometheus `rate()` / `increase()`
+      // derive windowed attempt counts and success rates from them.
+      metrics.attemptsTotal.inc(summaryLabels, observerRecords.length)
+      metrics.failuresTotal.inc(
+        summaryLabels,
+        observerRecords.filter(record => record.stages.submit.status !== 'ok').length,
+      )
+
+      for (const rec of observerRecords) {
+        for (const stage of expectedStages(rec.protocolClass)) {
+          const value = rec.stages[stage] ?? { status: 'not-observed' as const }
+          metrics.stageOutcomesTotal.inc({ ...summaryLabels, stage, outcome: value.status })
+          if (value.status === 'ok' && value.ms != null) {
+            metrics.stageLatency.observe({ ...summaryLabels, stage }, value.ms / 1000)
+          }
         }
       }
-    }
 
-    metrics.lastRunTimestampUnix.set(summaryLabels, Date.now() / 1000)
+      metrics.lastRunTimestampUnix.set(summaryLabels, Date.now() / 1000)
+    }
   }
 }
 
