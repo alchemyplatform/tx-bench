@@ -39,6 +39,8 @@ type StatusRequest = (request: {
 
 const BOOTSTRAP_POLL_INTERVAL_MS = 2_000
 const BOOTSTRAP_POLL_TIMEOUT_MS = 30_000
+const STATUS_PRECONFIRMED = 110
+const STATUS_CONFIRMED = 200
 
 // ── AccountClient impl ────────────────────────────────────────────────────────
 
@@ -48,6 +50,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
   // ensureDeployed is only attached when stableOwner is set (see constructor).
   readonly ensureDeployed?: () => Promise<void>
   readonly canonicalObserver: CanonicalObserver
+  readonly preconfirmationObserver: CanonicalObserver
 
   constructor(
     private readonly apiKey: string,
@@ -72,19 +75,30 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     }
     this.canonicalObserver = {
       api: 'wallet_getCallsStatus',
-      watch: (identifier, timeoutMs) => this._watchCanonical(identifier, timeoutMs, ownerPrivateKey),
+      watch: (identifier, timeoutMs) => this._watchStatus(identifier, timeoutMs, 'confirmed', ownerPrivateKey),
+    }
+    this.preconfirmationObserver = {
+      api: 'wallet_getCallsStatus',
+      watch: (identifier, timeoutMs) => this._watchStatus(identifier, timeoutMs, 'preconfirmed', ownerPrivateKey),
     }
   }
 
-  private async _watchCanonical(
+  private async _watchStatus(
     callId: `0x${string}`,
     timeoutMs: number,
+    target: 'preconfirmed' | 'confirmed',
     ownerPrivateKey?: `0x${string}`,
   ): Promise<CanonicalResult> {
     const request = this.injectedStatusRequest ?? this._createStatusRequest()
     const polled = await pollObserver({
       request: () => request({ method: 'wallet_getCallsStatus', params: [callId] }),
-      isPending: response => response.status >= 100 && response.status < 200,
+      // 100 is pending, 110 means Flashblock-preconfirmed, and 200 means
+      // confirmed. Other 1xx values remain pending for both targets. If a poll
+      // misses 110 and observes 200, confirmation still satisfies the earlier
+      // preconfirmation target conservatively.
+      isPending: response => response.status >= 100
+        && response.status < STATUS_CONFIRMED
+        && !(target === 'preconfirmed' && response.status === STATUS_PRECONFIRMED),
       timeoutMs,
       isRetryableError: isRetryableObserverError,
       now: this.observerNow,
@@ -112,7 +126,8 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
 
     const response = polled.value
     const terminalStatus = String(response.status)
-    if (response.status === 200) {
+    if (response.status === STATUS_CONFIRMED
+      || (target === 'preconfirmed' && response.status === STATUS_PRECONFIRMED)) {
       const receipt = response.receipts?.[0]
       return {
         status: 'ok',
@@ -259,7 +274,11 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     // ({ signedCalls }). The direct pass matches the type definition and is used
     // here. This must be verified at runtime against the real SDK — if the
     // wrapped form is required, change to sendPreparedCalls({ ...signed }).
-    const { id: callId } = await client.sendPreparedCalls(signed)
+    const sent = await client.sendPreparedCalls(signed)
+    const callId = sent.id
+    const userOpHash = sent.details?.type === 'user-operation'
+      ? sent.details.data.hash
+      : callId
 
     const tSendEnd = performance.now()
     const sendMs = tSendEnd - tSendStart
@@ -270,7 +289,8 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     const submitMs = prepareMs + sendMs
 
     return {
-      userOpHash: callId as `0x${string}`,
+      userOpHash,
+      canonicalIdentifier: callId,
       protocolClass: 'wallet-sendcalls',
       submitMs,
       prepareMs,

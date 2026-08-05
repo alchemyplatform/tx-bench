@@ -8,6 +8,7 @@ export type CanonicalObserverApi =
   | 'eth_getUserOperationReceipt'
   | 'wallet_getCallsStatus'
   | 'generic-log-scan'
+  | 'newFlashblockTransactions'
 
 export type CanonicalObservation = {
   api: CanonicalObserverApi

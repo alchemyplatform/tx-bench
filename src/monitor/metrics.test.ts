@@ -86,7 +86,7 @@ describe('buildMetrics', () => {
       provider_id: 'alchemy-light-account',
       stage: 'submit',
       observer_api: 'eth_getUserOperationReceipt',
-      measurement_epoch: 'alchemy-status-v2',
+      measurement_epoch: 'base-flashblocks-v3',
       network: 'base-mainnet',
       region: 'us-east-1',
     }
@@ -107,7 +107,7 @@ describe('buildMetrics', () => {
       provider_id: 'alchemy-light-account',
       stage: 'canonical',
       observer_api: 'eth_getUserOperationReceipt',
-      measurement_epoch: 'alchemy-status-v2',
+      measurement_epoch: 'base-flashblocks-v3',
       network: 'base-mainnet',
       region: 'us-east-1',
     }

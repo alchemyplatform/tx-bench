@@ -4,6 +4,10 @@ import type { CanonicalObserver } from '../oracle/canonical.js'
 
 export type SponsoredResult = {
   userOpHash: `0x${string}`
+  // Provider-specific identifier used by an adapter-owned status observer.
+  // Wallet API writes expose a call ID here while userOpHash retains the
+  // underlying UserOperation hash required by chain and Flashblock observers.
+  canonicalIdentifier?: `0x${string}`
   protocolClass: ProtocolClass
   submitMs: number
   accountAddress: `0x${string}`
@@ -21,6 +25,10 @@ export interface AccountClient {
   // Adapter-owned observers preserve provider-specific canonical semantics and
   // keep downstream observation outside the timed submission operation.
   readonly canonicalObserver?: CanonicalObserver
+  // Optional provider-native preconfirmation observer. Base monitoring prefers
+  // this over the raw Flashblock stream when the write API exposes an
+  // authoritative preconfirmation state (for example Wallet status 110).
+  readonly preconfirmationObserver?: CanonicalObserver
   // Optional: called once after buildAccountClient and before the timed loop to
   // ensure the account is deployed on-chain (e.g. stable-owner self-bootstrap).
   // When absent, the service skips it. Excluded from all metrics.

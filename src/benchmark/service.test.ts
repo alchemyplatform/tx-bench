@@ -74,6 +74,7 @@ function makeMockCanonical(blockNumber = 1000n): CanonicalOracle {
 }
 
 const MOCK_FLASHBLOCK: FlashblockOracle = {
+  async ready() {},
   async watch() { return { status: 'not-observed' } },
   close() {},
 }
@@ -152,6 +153,8 @@ describe('runBenchmarkGrid — per-provider error isolation', () => {
 
 describe('runBenchmarkGrid — accepted submission lifecycle', () => {
   it('uses an adapter-owned canonical observer without touching the fallback oracle', async () => {
+    const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
+    const canonicalIdentifier = ('0x' + 'ab'.repeat(32)) as `0x${string}`
     const observerWatch = mock(async () => ({
       status: 'timed-out' as const,
       observation: {
@@ -171,7 +174,8 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
           },
           async sendSponsored() {
             return {
-              userOpHash: ('0x' + '12'.repeat(32)) as `0x${string}`,
+              userOpHash,
+              canonicalIdentifier,
               protocolClass: '4337-bundler' as const,
               submitMs: 125,
               acceptedAtMs: 500,
@@ -198,10 +202,229 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
 
     expect(fallbackGetBlock).not.toHaveBeenCalled()
     expect(fallbackWatch).not.toHaveBeenCalled()
-    expect(observerWatch).toHaveBeenCalledWith(('0x' + '12'.repeat(32)), 10_000)
+    expect(observerWatch).toHaveBeenCalledWith(canonicalIdentifier, 10_000)
     expect(result.records[0].stages.submit).toEqual({ status: 'ok', ms: 125 })
     expect(result.records[0].stages.canonical.status).toBe('timed-out')
     expect(result.records[0].acceptedAtMs).toBe(500)
+  })
+
+  it('prefers an observed Flashblock and falls back to confirmed inclusion for Base canonical timing', async () => {
+    const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
+    const lifecycle: string[] = []
+    const confirmedOutcomes = [900, 910, 920, 930]
+    const ownedWatch = mock(async () => ({
+      status: 'ok' as const,
+      blockNumber: 124n,
+      txHash: ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+      tMs: confirmedOutcomes.shift()!,
+      observation: {
+        api: 'eth_getUserOperationReceipt' as const,
+        pollCount: 2,
+        terminalStatus: 'success',
+      },
+    }))
+    const adapter: ProviderAdapter = {
+      id: 'alchemy-mav2-bso',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          canonicalObserver: {
+            api: 'eth_getUserOperationReceipt' as const,
+            watch: ownedWatch,
+          },
+          async sendSponsored() {
+            lifecycle.push('send')
+            return {
+              userOpHash,
+              protocolClass: '4337-bundler' as const,
+              submitMs: 80,
+              acceptedAtMs: 500,
+              accountAddress: ('0x' + '78'.repeat(20)) as `0x${string}`,
+            }
+          },
+        }
+      },
+    }
+    const fallbackGetBlock = mock(async () => { throw new Error('fallback getBlockNumber must not run') })
+    const fallbackWatch = mock(async () => { throw new Error('fallback watch must not run') })
+    const flashblockOutcomes = [
+      { status: 'ok' as const, blockNumber: 123n, flashblockIndex: 4, tMs: 700 },
+      { status: 'not-observed' as const },
+      { status: 'not-attributable' as const },
+      new Error('flashblock socket failed'),
+    ]
+    let outcomeIndex = 0
+    const flashblockWatch = mock(async () => {
+      const outcome = flashblockOutcomes[outcomeIndex++]
+      if (outcome instanceof Error) throw outcome
+      return outcome
+    })
+    const flashblockReady = mock(async () => { lifecycle.push('ready') })
+
+    const [result] = await runBenchmarkGrid(
+      { ...SINGLE_RUN_CONFIG, runCount: flashblockOutcomes.length },
+      [{ row: makeRow('alchemy-mav2-bso', '4337-bundler'), adapter }],
+      { getBlockNumber: fallbackGetBlock, watch: fallbackWatch, close() {} },
+      { ready: flashblockReady, watch: flashblockWatch, close() {} },
+      undefined,
+      { canonicalSource: 'preconfirmation' },
+    )
+
+    expect(ownedWatch).toHaveBeenCalledTimes(flashblockOutcomes.length)
+    expect(ownedWatch).toHaveBeenCalledWith(userOpHash, 10_000)
+    expect(flashblockReady).toHaveBeenCalledTimes(1)
+    expect(lifecycle[0]).toBe('ready')
+    expect(fallbackGetBlock).not.toHaveBeenCalled()
+    expect(fallbackWatch).not.toHaveBeenCalled()
+    expect(flashblockWatch).toHaveBeenCalledTimes(flashblockOutcomes.length)
+    expect(flashblockWatch).toHaveBeenCalledWith(userOpHash, 5_000)
+    expect(result.records[0].stages.preconf).toEqual({ status: 'ok', ms: 200 })
+    expect(result.records[0].stages.canonical).toEqual({ status: 'ok', ms: 200 })
+    expect(result.records[0].canonicalObservation).toEqual({
+      api: 'newFlashblockTransactions',
+      pollCount: 0,
+    })
+    expect(result.records[0].blockPositions.canonical?.blockNumber).toBe(123n)
+    expect(result.records[1].stages.preconf).toEqual({ status: 'not-observed' })
+    expect(result.records[1].stages.canonical).toEqual({ status: 'ok', ms: 410 })
+    expect(result.records[1].canonicalObservation?.api).toBe('eth_getUserOperationReceipt')
+    expect(result.records[2].stages.preconf).toEqual({
+      status: 'not-observed',
+      reason: 'inclusion not neutrally attributable',
+    })
+    expect(result.records[2].stages.canonical).toEqual({ status: 'ok', ms: 420 })
+    expect(result.records[2].canonicalObservation?.api).toBe('eth_getUserOperationReceipt')
+    expect(result.records[3].stages.preconf).toEqual({ status: 'not-observed' })
+    expect(result.records[3].stages.canonical).toEqual({ status: 'ok', ms: 430 })
+    expect(result.records[3].canonicalObservation?.api).toBe('eth_getUserOperationReceipt')
+  })
+
+  it('uses confirmed inclusion when the Flashblock subscription is unavailable', async () => {
+    const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
+    const confirmedWatch = mock(async () => ({
+      status: 'ok' as const,
+      blockNumber: 124n,
+      txHash: ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+      tMs: 900,
+      observation: {
+        api: 'eth_getUserOperationReceipt' as const,
+        pollCount: 2,
+        terminalStatus: 'success',
+      },
+    }))
+    const sendSponsored = mock(async () => ({
+      userOpHash,
+      protocolClass: '4337-bundler' as const,
+      submitMs: 80,
+      acceptedAtMs: 500,
+      accountAddress: ('0x' + '78'.repeat(20)) as `0x${string}`,
+    }))
+    const adapter: ProviderAdapter = {
+      id: 'alchemy-mav2-bso',
+      protocolClass: '4337-bundler',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          canonicalObserver: {
+            api: 'eth_getUserOperationReceipt' as const,
+            watch: confirmedWatch,
+          },
+          sendSponsored,
+        }
+      },
+    }
+    const flashblockWatch = mock(async () => ({ status: 'not-observed' as const }))
+
+    const [result] = await runBenchmarkGrid(
+      SINGLE_RUN_CONFIG,
+      [{ row: makeRow('alchemy-mav2-bso'), adapter }],
+      { async getBlockNumber() { return 1n }, async watch() { throw new Error('fallback must not run') }, close() {} },
+      {
+        async ready() { throw new Error('subscription unavailable') },
+        watch: flashblockWatch,
+        close() {},
+      },
+      undefined,
+      { canonicalSource: 'preconfirmation' },
+    )
+
+    expect(sendSponsored).toHaveBeenCalledTimes(1)
+    expect(flashblockWatch).not.toHaveBeenCalled()
+    expect(confirmedWatch).toHaveBeenCalledWith(userOpHash, 10_000)
+    expect(result.records[0].stages.preconf).toEqual({ status: 'not-observed' })
+    expect(result.records[0].stages.canonical).toEqual({ status: 'ok', ms: 400 })
+    expect(result.records[0].canonicalObservation?.api).toBe('eth_getUserOperationReceipt')
+  })
+
+  it('uses the provider-native Wallet status observer for Base canonical timing', async () => {
+    const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
+    const callId = ('0x' + 'ab'.repeat(32)) as `0x${string}`
+    const confirmedWatch = mock(async () => { throw new Error('confirmed observer must not run') })
+    const preconfirmedWatch = mock(async () => ({
+      status: 'ok' as const,
+      tMs: 700,
+      observation: {
+        api: 'wallet_getCallsStatus' as const,
+        pollCount: 2,
+        terminalStatus: '110',
+      },
+    }))
+    const flashblockWatch = mock(async () => ({
+      status: 'ok' as const,
+      blockNumber: 123n,
+      flashblockIndex: 4,
+      tMs: 680,
+    }))
+    const flashblockReady = mock(async () => { throw new Error('Wallet status path must not require WebSocket readiness') })
+    const adapter: ProviderAdapter = {
+      id: 'alchemy-wallet-sendcalls',
+      protocolClass: 'wallet-sendcalls',
+      accountTypeLabel: 'Test Account',
+      async buildAccountClient() {
+        return {
+          canonicalObserver: {
+            api: 'wallet_getCallsStatus' as const,
+            watch: confirmedWatch,
+          },
+          preconfirmationObserver: {
+            api: 'wallet_getCallsStatus' as const,
+            watch: preconfirmedWatch,
+          },
+          async sendSponsored() {
+            return {
+              userOpHash,
+              canonicalIdentifier: callId,
+              protocolClass: 'wallet-sendcalls' as const,
+              submitMs: 80,
+              acceptedAtMs: 500,
+              accountAddress: ('0x' + '78'.repeat(20)) as `0x${string}`,
+            }
+          },
+        }
+      },
+    }
+
+    const [result] = await runBenchmarkGrid(
+      SINGLE_RUN_CONFIG,
+      [{ row: makeRow('alchemy-wallet-sendcalls', 'wallet-sendcalls'), adapter }],
+      { async getBlockNumber() { return 1n }, async watch() { throw new Error('fallback must not run') }, close() {} },
+      { ready: flashblockReady, watch: flashblockWatch, close() {} },
+      undefined,
+      { canonicalSource: 'preconfirmation' },
+    )
+
+    expect(confirmedWatch).not.toHaveBeenCalled()
+    expect(flashblockReady).not.toHaveBeenCalled()
+    expect(preconfirmedWatch).toHaveBeenCalledWith(callId, 5_000)
+    expect(flashblockWatch).toHaveBeenCalledWith(userOpHash, 5_000)
+    expect(result.records[0].stages.preconf).toEqual({ status: 'ok', ms: 180 })
+    expect(result.records[0].stages.canonical).toEqual({ status: 'ok', ms: 200 })
+    expect(result.records[0].canonicalObservation).toEqual({
+      api: 'wallet_getCallsStatus',
+      pollCount: 2,
+      terminalStatus: '110',
+    })
   })
 
   it('keeps accepted timings and redacts credentials when an owned observer rejects', async () => {

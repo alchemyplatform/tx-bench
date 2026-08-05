@@ -270,7 +270,7 @@ describe('runOnce', () => {
     )
     expect(canonicalError?.value).toBe(1)
     expect(canonicalError?.labels['observer_api']).toBe('wallet_getCallsStatus')
-    expect(canonicalError?.labels['measurement_epoch']).toBe('alchemy-status-v2')
+    expect(canonicalError?.labels['measurement_epoch']).toBe('base-flashblocks-v3')
   })
 
   it('emits exactly one canonical outcome per attempt for reconciliation', async () => {
@@ -289,7 +289,8 @@ describe('runOnce', () => {
 
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
 
-    const attempts = (await metrics.attemptsTotal.get()).values[0]?.value
+    const attempts = (await metrics.attemptsTotal.get()).values
+      .reduce((sum, value) => sum + value.value, 0)
     const canonicalOutcomes = (await metrics.stageOutcomesTotal.get()).values
       .filter(value => value.labels['stage'] === 'canonical')
       .reduce((sum, value) => sum + value.value, 0)
@@ -483,6 +484,105 @@ describe('runOnce', () => {
 
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: runner as never, baseEnv: env })
     expect(capturedEnvs[0]?.NEUTRAL_RPC_URL).toBe('https://eth-mainnet.g.alchemy.com/v2/test-key')
+  })
+
+  it('configures the Alchemy Flashblocks WebSocket only for Base monitoring', async () => {
+    const metrics = makeMetrics()
+    const capturedEnvs: EnvSource[] = []
+    const runner = mock(async (_config: Config, env: EnvSource) => {
+      capturedEnvs.push(env)
+      return []
+    })
+
+    await runOnce(CREDENTIALS, metrics, REGION, {
+      gridRunner: runner as never,
+      baseEnv: {
+        NETWORKS: 'base-mainnet,eth-mainnet',
+        NEUTRAL_FLASHBLOCK_WS_URL: 'wss://untrusted.example.com',
+      },
+    })
+
+    const byNetwork = new Map(capturedEnvs.map(env => [env.NETWORK, env]))
+    expect(byNetwork.get('base-mainnet')?.NEUTRAL_FLASHBLOCK_WS_URL)
+      .toBe('wss://base-mainnet.g.alchemy.com/v2/test-key')
+    expect(byNetwork.get('eth-mainnet')?.NEUTRAL_FLASHBLOCK_WS_URL).toBeUndefined()
+  })
+
+  it('labels Base canonical samples with the Flashblocks observer', async () => {
+    const metrics = makeMetrics()
+    const records = [makeRecord('alchemy-mav2-bso', '4337-bundler', { canonical: 250 }, 0)]
+    const results = [makeProviderResult('alchemy-mav2-bso', '4337-bundler', records, 0)]
+
+    await runOnce(CREDENTIALS, metrics, REGION, {
+      gridRunner: mockGridRunner(results) as never,
+      baseEnv: BASE_ENV,
+    })
+
+    const canonicalCount = (await metrics.stageLatency.get()).values.find(value =>
+      value.metricName === 'txe_bench_stage_latency_seconds_count'
+      && value.labels['stage'] === 'canonical',
+    )
+    expect(canonicalCount?.labels['observer_api']).toBe('newFlashblockTransactions')
+  })
+
+  it('keeps Flashblock and confirmed-inclusion fallback samples in separate observer series', async () => {
+    const metrics = makeMetrics()
+    const flashblockRecord = makeRecord('alchemy-mav2-bso', '4337-bundler', { canonical: 250 }, 0)
+    flashblockRecord.canonicalObservation = {
+      api: 'newFlashblockTransactions',
+      pollCount: 0,
+    }
+    const confirmedRecord = makeRecord('alchemy-mav2-bso', '4337-bundler', { canonical: 1_750 }, 1)
+    confirmedRecord.canonicalObservation = {
+      api: 'eth_getUserOperationReceipt',
+      pollCount: 2,
+      terminalStatus: 'success',
+    }
+    const results = [makeProviderResult(
+      'alchemy-mav2-bso',
+      '4337-bundler',
+      [flashblockRecord, confirmedRecord],
+      0,
+    )]
+
+    await runOnce(CREDENTIALS, metrics, REGION, {
+      gridRunner: mockGridRunner(results) as never,
+      baseEnv: BASE_ENV,
+    })
+
+    const canonicalCounts = (await metrics.stageLatency.get()).values.filter(value =>
+      value.metricName === 'txe_bench_stage_latency_seconds_count'
+      && value.labels['stage'] === 'canonical',
+    )
+    expect(canonicalCounts).toHaveLength(2)
+    expect(canonicalCounts.find(value =>
+      value.labels['observer_api'] === 'newFlashblockTransactions')?.value,
+    ).toBe(1)
+    expect(canonicalCounts.find(value =>
+      value.labels['observer_api'] === 'eth_getUserOperationReceipt')?.value,
+    ).toBe(1)
+
+    const attemptSeries = (await metrics.attemptsTotal.get()).values
+      .filter(value => value.labels['provider_id'] === 'alchemy-mav2-bso')
+    expect(attemptSeries).toHaveLength(2)
+    expect(attemptSeries.every(value => value.value === 1)).toBe(true)
+  })
+
+  it('labels Base Wallet canonical samples with the provider status observer', async () => {
+    const metrics = makeMetrics()
+    const records = [makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { canonical: 250 }, 0)]
+    const results = [makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', records, 0)]
+
+    await runOnce(CREDENTIALS, metrics, REGION, {
+      gridRunner: mockGridRunner(results) as never,
+      baseEnv: BASE_ENV,
+    })
+
+    const canonicalCount = (await metrics.stageLatency.get()).values.find(value =>
+      value.metricName === 'txe_bench_stage_latency_seconds_count'
+      && value.labels['stage'] === 'canonical',
+    )
+    expect(canonicalCount?.labels['observer_api']).toBe('wallet_getCallsStatus')
   })
 
   it('ignores non-Alchemy neutral overrides and always derives the Alchemy URL', async () => {

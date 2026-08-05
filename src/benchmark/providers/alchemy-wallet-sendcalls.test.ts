@@ -68,10 +68,11 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
   const callId = ('0x' + '12'.repeat(32)) as `0x${string}`
   const txHash = ('0x' + '34'.repeat(32)) as `0x${string}`
 
-  it('polls the exact accepted call ID from pending 100 to success 200', async () => {
+  it('keeps polling the exact accepted call ID through preconfirmed 110 until confirmed 200', async () => {
     const calls: Array<{ method: string; params: readonly unknown[] }> = []
     const responses = [
       { status: 100 },
+      { status: 110 },
       { status: 200, receipts: [{ blockNumber: '0x64', transactionHash: txHash }] },
     ]
     const adapter = createAlchemyWalletSendCallsAdapter({
@@ -85,7 +86,7 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
 
     const result = await client.canonicalObserver!.watch(callId, 10_000)
 
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(3)
     expect(calls.every(call => call.method === 'wallet_getCallsStatus')).toBe(true)
     expect(calls.every(call => call.params[0] === callId)).toBe(true)
     expect(result).toEqual({
@@ -95,8 +96,40 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
       tMs: expect.any(Number),
       observation: {
         api: 'wallet_getCallsStatus',
-        pollCount: 2,
+        pollCount: 3,
         terminalStatus: '200',
+      },
+    })
+  })
+
+  it('uses status 110 as the provider-native Flashblock preconfirmation', async () => {
+    const calls: Array<{ method: string; params: readonly unknown[] }> = []
+    const responses = [
+      { status: 100 },
+      { status: 110 },
+      { status: 200, receipts: [{ blockNumber: '0x64', transactionHash: txHash }] },
+    ]
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      statusRequest: async (request) => {
+        calls.push(request)
+        return responses.shift()!
+      },
+      observerSleep: async () => {},
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const result = await client.preconfirmationObserver!.watch(callId, 10_000)
+
+    expect(calls).toHaveLength(2)
+    expect(calls.every(call => call.method === 'wallet_getCallsStatus')).toBe(true)
+    expect(calls.every(call => call.params[0] === callId)).toBe(true)
+    expect(result).toEqual({
+      status: 'ok',
+      tMs: expect.any(Number),
+      observation: {
+        api: 'wallet_getCallsStatus',
+        pollCount: 2,
+        terminalStatus: '110',
       },
     })
   })
@@ -585,7 +618,10 @@ describe('alchemyWalletSendCallsAdapter — prepare/send stage refactor', () => 
   function makePrepareSendMock(opts?: {
     prepareCallsResult?: unknown
     signPreparedCallsResult?: unknown
-    sendPreparedCallsResult?: { id: string }
+    sendPreparedCallsResult?: {
+      id: string
+      details?: { type: 'user-operation'; data: { hash: string } } | { type: 'delegation' }
+    }
     waitForCallsStatusResult?: unknown
     prepareCallsThrows?: string
     signPreparedCallsThrows?: string
@@ -631,6 +667,28 @@ describe('alchemyWalletSendCallsAdapter — prepare/send stage refactor', () => 
     await client.sendSponsored()
 
     expect(callOrder).toEqual(['prepareCalls', 'signPreparedCalls', 'sendPreparedCalls'])
+  })
+
+  it('returns the UserOperation hash for Flashblock observation and the call ID for status polling', async () => {
+    const callId = ('0x' + '1'.repeat(64)) as `0x${string}`
+    const userOpHash = ('0x' + '2'.repeat(64)) as `0x${string}`
+    const { mockClient } = makePrepareSendMock({
+      sendPreparedCallsResult: {
+        id: callId,
+        details: { type: 'user-operation', data: { hash: userOpHash } },
+      },
+    })
+    const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      createClient: mockCreateClient,
+      generateKey: () => ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+    })
+
+    const client = await adapter.buildAccountClient(makeConfig('base-mainnet'))
+    const result = await client.sendSponsored()
+
+    expect(result.userOpHash).toBe(userOpHash)
+    expect(result.canonicalIdentifier).toBe(callId)
   })
 
   it('happy path: prepareMs covers prepare+sign, sendMs covers send, submitMs = prepareMs + sendMs', async () => {
