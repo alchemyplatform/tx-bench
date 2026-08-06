@@ -270,3 +270,12 @@ export function createFlashblockOracle(wsUrl: string, deps?: { ws?: WsFactory })
     },
   }
 }
+
+// For networks with no Flashblocks endpoint. A stubbed-out WebSocket is not
+// enough: every watch() still runs to the full preconf timeout, burning ~30s of
+// dead wall clock per iteration. Report not-observed immediately instead.
+export const notObservedFlashblockOracle: FlashblockOracle = {
+  async ready() {},
+  async watch() { return { status: 'not-observed' } },
+  close() {},
+}

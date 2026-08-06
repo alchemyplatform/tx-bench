@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { createFlashblockOracle, type FlashblocksWs, type WsFactory } from './flashblocks'
+import { createFlashblockOracle, notObservedFlashblockOracle, type FlashblocksWs, type WsFactory } from './flashblocks'
 import { USER_OP_EVENT_TOPIC } from './identity'
 
 // ── Mock WebSocket ────────────────────────────────────────────────────────────
@@ -280,5 +280,19 @@ describe('flashblock oracle — schema tolerance', () => {
     const result = await resultPromise
     expect(result.status).toBe('not-observed')
     oracle.close()
+  })
+})
+
+describe('notObservedFlashblockOracle', () => {
+  it('resolves immediately instead of running to the preconf timeout', async () => {
+    const start = performance.now()
+    const result = await notObservedFlashblockOracle.watch(('0x' + '11'.repeat(32)) as `0x${string}`, 30_000)
+    expect(result).toEqual({ status: 'not-observed' })
+    expect(performance.now() - start).toBeLessThan(100)
+  })
+
+  it('is ready without a socket and closes cleanly', async () => {
+    await notObservedFlashblockOracle.ready(30_000)
+    expect(() => notObservedFlashblockOracle.close()).not.toThrow()
   })
 })

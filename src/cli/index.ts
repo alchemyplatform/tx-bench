@@ -4,7 +4,7 @@ import { loadConfig } from '../benchmark/config.js'
 import { assertRowsExist, buildRows, getRunnableRows } from '../benchmark/rows.js'
 import { runPreflight } from '../benchmark/preflight.js'
 import { createCanonicalOracle } from '../benchmark/oracle/canonical.js'
-import { createFlashblockOracle } from '../benchmark/oracle/flashblocks.js'
+import { createFlashblockOracle, notObservedFlashblockOracle } from '../benchmark/oracle/flashblocks.js'
 import { runBenchmarkGrid, type ProviderEntry, type ProviderRunResult } from '../benchmark/service.js'
 import { buildOutput, serializeOutput } from '../benchmark/output.js'
 import { renderTable } from './render.js'
@@ -337,7 +337,7 @@ program
       const canonicalOracle = createCanonicalOracle(neutralPublicClient)
       const flashblockOracle = config.neutral.flashblockWsUrl && preflight.flashblockAvailable
         ? createFlashblockOracle(config.neutral.flashblockWsUrl)
-        : createFlashblockOracle('wss://no-op', { ws: (_url) => ({ readyState: 3, send: () => {}, close: () => {}, onopen: null, onclose: null, onerror: null, onmessage: null }) })
+        : notObservedFlashblockOracle
 
       log(`\nRunning ${config.runCount} iteration(s) across ${providers.length} provider(s)...\n`)
 

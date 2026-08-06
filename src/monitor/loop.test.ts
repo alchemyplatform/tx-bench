@@ -201,6 +201,24 @@ describe('runOnce', () => {
     }
   })
 
+  it('emits no providerReceipt series for the wallet path, but keeps it for 4337', async () => {
+    const metrics = makeMetrics()
+    const wallet = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 250, canonical: 1650 }, 0)
+    const bso = makeRecord('alchemy-mav2-bso', '4337-bundler', { submit: 100, canonical: 2000 }, 0)
+    const results = [
+      makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', [wallet], 0),
+      makeProviderResult('alchemy-mav2-bso', '4337-bundler', [bso], 0),
+    ]
+    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
+
+    // providerReceipt was 100% not-observed for wallet-sendcalls in production,
+    // so the stage is dropped there rather than emitting a series of pure noise.
+    const outcomes = (await metrics.stageOutcomesTotal.get()).values
+      .filter(v => v.labels['stage'] === 'providerReceipt')
+      .map(v => v.labels['provider_id'])
+    expect(outcomes).toEqual(['alchemy-mav2-bso'])
+  })
+
   it('increments attempts and failures counters cumulatively', async () => {
     const metrics = makeMetrics()
     const records = [

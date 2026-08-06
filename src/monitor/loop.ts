@@ -4,7 +4,7 @@ import type { Chain } from 'viem'
 import { loadConfig, type Config, type EnvSource } from '../benchmark/config.js'
 import { buildRows, getRunnableRows } from '../benchmark/rows.js'
 import { createCanonicalOracle } from '../benchmark/oracle/canonical.js'
-import { createFlashblockOracle } from '../benchmark/oracle/flashblocks.js'
+import { createFlashblockOracle, notObservedFlashblockOracle } from '../benchmark/oracle/flashblocks.js'
 import { runBenchmarkGrid, type ProviderEntry, type ProviderRunResult } from '../benchmark/service.js'
 import { alchemyWalletSendCallsAdapter } from '../benchmark/providers/alchemy-wallet-sendcalls.js'
 import type { MonitoringCredentials } from './secrets.js'
@@ -17,7 +17,6 @@ import type { ProtocolClass, RunRecord } from '../benchmark/contracts.js'
 // codebase for CLI and public cross-provider runs, which still need a raw 4337
 // path to compare against Pimlico and ZeroDev; it is just not monitored.
 const ALCHEMY_ADAPTERS = [alchemyWalletSendCallsAdapter]
-const NO_OP_WS = (_url: string) => ({ readyState: 3, send: () => {}, close: () => {}, onopen: null, onclose: null, onerror: null, onmessage: null })
 const MONITORING_RUN_COUNT_DEFAULT = 20
 const MONITOR_INTERVAL_MS = 60 * 60 * 1000
 const STARTUP_JITTER_WINDOW_MS = 60 * 1000
@@ -143,7 +142,7 @@ function createDefaultGridRunner(): GridRunner {
     }
     const flashblockOracle = hasFlashblocks
       ? createFlashblockOracle(config.neutral.flashblockWsUrl!)
-      : createFlashblockOracle('wss://no-op', { ws: NO_OP_WS })
+      : notObservedFlashblockOracle
 
     const region = env.REGION ?? env.AWS_REGION ?? null
 
@@ -203,9 +202,13 @@ function observerApiForProvider(provider: string, network: string): string {
   return 'generic-log-scan'
 }
 
+// providerReceipt is omitted for wallet-sendcalls: it was 100% not-observed in
+// every production window, so the series carried no signal.
 function expectedStages(protocolClass: ProtocolClass): Array<keyof RunRecord['stages']> {
-  const common: Array<keyof RunRecord['stages']> = ['submit', 'preconf', 'firstStatus', 'canonical', 'providerReceipt']
-  return protocolClass === 'wallet-sendcalls' ? ['prepare', 'send', ...common] : common
+  const common: Array<keyof RunRecord['stages']> = ['submit', 'preconf', 'firstStatus', 'canonical']
+  return protocolClass === 'wallet-sendcalls'
+    ? ['prepare', 'send', ...common]
+    : [...common, 'providerReceipt']
 }
 
 // terminalStatus describes what ended a *status observation*, so only the two
