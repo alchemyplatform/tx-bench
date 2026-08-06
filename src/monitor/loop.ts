@@ -109,8 +109,8 @@ function buildEnv(credentials: MonitoringCredentials, baseEnv: EnvSource): EnvSo
     ...sanitizedBaseEnv,
     ALCHEMY_API_KEY: credentials.ALCHEMY_API_KEY,
     ALCHEMY_POLICY_ID: credentials.ALCHEMY_POLICY_ID,
+    ALCHEMY_BSO_POLICY_ID: credentials.ALCHEMY_BSO_POLICY_ID,
     OWNER_PRIVATE_KEY: credentials.OWNER_PRIVATE_KEY,
-    ...(credentials.ALCHEMY_BSO_POLICY_ID && { ALCHEMY_BSO_POLICY_ID: credentials.ALCHEMY_BSO_POLICY_ID }),
     // Use a monitoring-appropriate default run count unless already set in baseEnv
     RUN_COUNT: baseEnv.RUN_COUNT ?? String(MONITORING_RUN_COUNT_DEFAULT),
   }
@@ -127,17 +127,22 @@ export function buildAdapterEntries(env: EnvSource): ProviderEntry[] {
 
 function createDefaultGridRunner(): GridRunner {
   return async (config, env) => {
+    const entries = buildAdapterEntries(env)
+    if (entries.length === 0) {
+      throw new Error(
+        'No monitored adapter is runnable — the Wallet path requires ALCHEMY_API_KEY and ALCHEMY_BSO_POLICY_ID',
+      )
+    }
     const chain = resolveChain(config.network)
     const client = createPublicClient({ chain, transport: http(config.neutral.rpcUrl) })
     const canonicalOracle = createCanonicalOracle(client)
-    const useFlashblockCanonical = config.network === BASE_MAINNET
-    if (useFlashblockCanonical && !config.neutral.flashblockWsUrl) {
+    const hasFlashblocks = config.network === BASE_MAINNET
+    if (hasFlashblocks && !config.neutral.flashblockWsUrl) {
       throw new Error('Base monitoring requires a Flashblocks WebSocket endpoint')
     }
-    const flashblockOracle = useFlashblockCanonical
+    const flashblockOracle = hasFlashblocks
       ? createFlashblockOracle(config.neutral.flashblockWsUrl!)
       : createFlashblockOracle('wss://no-op', { ws: NO_OP_WS })
-    const entries = buildAdapterEntries(env)
 
     const region = env.REGION ?? env.AWS_REGION ?? null
 
@@ -178,7 +183,7 @@ function createDefaultGridRunner(): GridRunner {
             iteration: ev.iteration,
           }))
         }
-      }, { canonicalSource: useFlashblockCanonical ? 'earliest-signal' : 'default' })
+      })
     } finally {
       canonicalOracle.close()
       flashblockOracle.close()
@@ -198,24 +203,26 @@ function observerApiForProvider(provider: string, network: string): string {
 }
 
 function expectedStages(protocolClass: ProtocolClass): Array<keyof RunRecord['stages']> {
-  const common: Array<keyof RunRecord['stages']> = ['submit', 'preconf', 'canonical', 'providerReceipt']
+  const common: Array<keyof RunRecord['stages']> = ['submit', 'preconf', 'firstStatus', 'canonical', 'providerReceipt']
   return protocolClass === 'wallet-sendcalls' ? ['prepare', 'send', ...common] : common
 }
 
-// terminalStatus describes what ended the *canonical* observation, so only that
-// stage gets a real value. Tagging submit/prepare/preconf with it would be
-// meaningless and would multiply those series by every observed status value.
+// terminalStatus describes what ended a *status observation*, so only the two
+// stages driven by wallet_getCallsStatus get a real value. Tagging
+// submit/prepare/preconf with it would be meaningless and would multiply those
+// series by every observed status value.
 //
-// This is what makes the wallet_getCallsStatus 110-vs-200 split visible in
-// Grafana: 110 fires only intermittently and lands ~1s behind actual Flashblock
-// inclusion, so pooling both under one series hides which signal a given
-// canonical measurement actually came from.
+// This is what makes the 110-vs-200 split visible in Grafana. `canonical` now
+// only ever ends on 200, so the informative split lives on `firstStatus`: 110
+// fires only intermittently and lands ~1s behind actual Flashblock inclusion,
+// and once the rundler dedup fix lands firstStatus should drop toward preconf.
 function terminalStatusForStage(
   record: RunRecord,
   stage: keyof RunRecord['stages'],
 ): string {
-  if (stage !== 'canonical') return TERMINAL_STATUS_NONE
-  return record.canonicalObservation?.terminalStatus ?? TERMINAL_STATUS_NONE
+  if (stage === 'canonical') return record.canonicalObservation?.terminalStatus ?? TERMINAL_STATUS_NONE
+  if (stage === 'firstStatus') return record.firstStatusObservation?.terminalStatus ?? TERMINAL_STATUS_NONE
+  return TERMINAL_STATUS_NONE
 }
 
 function redactLogText(value: string | undefined, credentials: MonitoringCredentials): string | undefined {

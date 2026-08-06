@@ -57,7 +57,7 @@ const ROW_DEFINITIONS: readonly RowDefinition[] = [
     label: 'Alchemy (Wallet SendCalls)',
     protocolClass: 'wallet-sendcalls',
     accountTypeLabel: 'Smart Wallet (EIP-7702)',
-    requiredEnv: ['ALCHEMY_API_KEY', 'ALCHEMY_POLICY_ID'],
+    requiredEnv: ['ALCHEMY_API_KEY', 'ALCHEMY_BSO_POLICY_ID'],
   },
 ] as const
 

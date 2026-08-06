@@ -18,6 +18,7 @@ function makeConfig(network = 'base-mainnet', ownerPrivateKey?: `0x${string}`): 
       alchemy: {
         apiKey: 'test-api-key',
         policyId: 'test-policy',
+        bsoPolicyId: 'test-bso-policy',
         rpcUrl: 'https://example.com',
       },
       pimlico: null,
@@ -61,6 +62,35 @@ describe('alchemyWalletSendCallsAdapter — buildAccountClient', () => {
     const config = makeConfig()
     config.providers.alchemy = null
     await expect(adapter.buildAccountClient(config)).rejects.toThrow('ALCHEMY_API_KEY')
+  })
+
+  it('throws when the BSO policy is absent rather than falling back to ALCHEMY_POLICY_ID', async () => {
+    const adapter = createAlchemyWalletSendCallsAdapter()
+    const config = makeConfig()
+    config.providers.alchemy!.bsoPolicyId = null
+    await expect(adapter.buildAccountClient(config)).rejects.toThrow('ALCHEMY_BSO_POLICY_ID')
+  })
+
+  it('sponsors with the BSO policy, not the regular policy', async () => {
+    const policyIds: unknown[] = []
+    const createClient = ((params: { paymaster?: { policyId: string } }) => {
+      policyIds.push(params.paymaster?.policyId)
+      return {
+        prepareCalls: async (p: { capabilities?: { paymaster?: { policyId: string } } }) => {
+          policyIds.push(p.capabilities?.paymaster?.policyId)
+          return { type: 'user-operation-v060', data: {} }
+        },
+        signPreparedCalls: async () => ({ type: 'user-operation-v060', data: {}, signature: { type: 'secp256k1', data: '0x' + 'f'.repeat(130) } }),
+        sendPreparedCalls: async () => ({ id: '0x' + '1'.repeat(64) }),
+      }
+    }) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
+
+    const adapter = createAlchemyWalletSendCallsAdapter({ createClient })
+    const client = await adapter.buildAccountClient(makeConfig())
+    await client.sendSponsored()
+
+    expect(policyIds).toEqual(['test-bso-policy', 'test-bso-policy'])
+    expect(policyIds).not.toContain('test-policy')
   })
 })
 

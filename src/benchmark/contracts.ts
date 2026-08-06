@@ -43,6 +43,10 @@ export type RunRecord = {
     preconf: Stage
     canonical: Stage
     providerReceipt: Stage
+    // First terminal status from the provider, whatever it is (110 or 200),
+    // where `canonical` waits for 200. Present only for modalities with an
+    // early-inclusion observer.
+    firstStatus?: Stage
     prepare?: Stage  // Optional decomposition of submit (Wallet SendCalls only)
     send?: Stage     // Optional decomposition of submit (Wallet SendCalls only)
   }
@@ -51,6 +55,12 @@ export type RunRecord = {
     canonical?: BlockPosition
   }
   canonicalObservation?: {
+    api: CanonicalObserverApi
+    pollCount: number
+    terminalStatus?: string
+    errorClass?: string
+  }
+  firstStatusObservation?: {
     api: CanonicalObserverApi
     pollCount: number
     terminalStatus?: string
@@ -87,6 +97,7 @@ export type ProviderMetrics = {
     submit?: StageMetrics
     preconf?: StageMetrics
     canonical?: StageMetrics
+    firstStatus?: StageMetrics
     providerReceipt?: StageMetrics
     prepare?: StageMetrics  // Optional decomposition of submit (Wallet SendCalls only)
     send?: StageMetrics     // Optional decomposition of submit (Wallet SendCalls only)

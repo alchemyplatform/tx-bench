@@ -18,6 +18,7 @@ function makeErrorClient(error: Error): SecretsManagerClient {
 const VALID_SECRET = JSON.stringify({
   ALCHEMY_API_KEY: 'test-api-key',
   ALCHEMY_POLICY_ID: 'test-policy-id',
+  ALCHEMY_BSO_POLICY_ID: 'test-bso-policy-id',
   OWNER_PRIVATE_KEY: '0x' + 'ab'.repeat(32),
   NEUTRAL_RPC_URL: 'https://base-mainnet.example.com',
 })
@@ -42,31 +43,44 @@ describe('loadMonitoringCredentials', () => {
     const secret = JSON.stringify({
       ALCHEMY_API_KEY: 'k',
       ALCHEMY_POLICY_ID: 'p',
+      ALCHEMY_BSO_POLICY_ID: 'bso-policy-id',
       OWNER_PRIVATE_KEY: '0x' + 'cc'.repeat(32),
     })
     const client = makeClient(secret)
     const creds = await loadMonitoringCredentials('us-east-1', client)
     expect(creds.NEUTRAL_RPC_URL).toBeUndefined()
     expect(creds.ALCHEMY_RPC_URL).toBeUndefined()
-    expect(creds.ALCHEMY_BSO_POLICY_ID).toBeUndefined()
   })
 
-  it('includes ALCHEMY_BSO_POLICY_ID when present in the secret', async () => {
+  it('returns ALCHEMY_BSO_POLICY_ID, which the monitored Wallet path sponsors with', async () => {
     const secret = JSON.stringify({
       ALCHEMY_API_KEY: 'k',
       ALCHEMY_POLICY_ID: 'p',
-      OWNER_PRIVATE_KEY: '0x' + 'ee'.repeat(32),
       ALCHEMY_BSO_POLICY_ID: 'bso-policy-id',
+      OWNER_PRIVATE_KEY: '0x' + 'ee'.repeat(32),
     })
     const client = makeClient(secret)
     const creds = await loadMonitoringCredentials('us-east-1', client)
     expect(creds.ALCHEMY_BSO_POLICY_ID).toBe('bso-policy-id')
   })
 
+  it('throws a descriptive error when ALCHEMY_BSO_POLICY_ID is missing', async () => {
+    const secret = JSON.stringify({
+      ALCHEMY_API_KEY: 'k',
+      ALCHEMY_POLICY_ID: 'p',
+      OWNER_PRIVATE_KEY: '0x' + 'cc'.repeat(32),
+    })
+    const client = makeClient(secret)
+    await expect(loadMonitoringCredentials('us-east-1', client)).rejects.toThrow(
+      'missing required key "ALCHEMY_BSO_POLICY_ID"',
+    )
+  })
+
   it('ignores legacy NEUTRAL_RPC_URLS maps', async () => {
     const secret = JSON.stringify({
       ALCHEMY_API_KEY: 'k',
       ALCHEMY_POLICY_ID: 'p',
+      ALCHEMY_BSO_POLICY_ID: 'bso-policy-id',
       OWNER_PRIVATE_KEY: '0x' + 'ff'.repeat(32),
       NEUTRAL_RPC_URLS: {
         'eth-mainnet': 'https://eth.example.com',
@@ -88,6 +102,7 @@ describe('loadMonitoringCredentials', () => {
     const secret = JSON.stringify({
       ALCHEMY_API_KEY: 'k',
       ALCHEMY_POLICY_ID: 'p',
+      ALCHEMY_BSO_POLICY_ID: 'bso-policy-id',
       OWNER_PRIVATE_KEY: '0x' + '11'.repeat(32),
       NEUTRAL_RPC_URLS: 'not-an-object',
     })
@@ -101,6 +116,7 @@ describe('loadMonitoringCredentials', () => {
     const secret = JSON.stringify({
       ALCHEMY_API_KEY: 'k',
       ALCHEMY_POLICY_ID: 'p',
+      ALCHEMY_BSO_POLICY_ID: 'bso-policy-id',
       OWNER_PRIVATE_KEY: '0x' + '22'.repeat(32),
       NEUTRAL_RPC_URLS: { 'eth-mainnet': 12345, 'base-mainnet': 'https://base.example.com' },
     })
@@ -112,6 +128,7 @@ describe('loadMonitoringCredentials', () => {
   it('throws a descriptive error when ALCHEMY_API_KEY is missing', async () => {
     const secret = JSON.stringify({
       ALCHEMY_POLICY_ID: 'p',
+      ALCHEMY_BSO_POLICY_ID: 'bso-policy-id',
       OWNER_PRIVATE_KEY: '0x' + 'dd'.repeat(32),
     })
     const client = makeClient(secret)
@@ -121,7 +138,7 @@ describe('loadMonitoringCredentials', () => {
   })
 
   it('throws a descriptive error when OWNER_PRIVATE_KEY is missing', async () => {
-    const secret = JSON.stringify({ ALCHEMY_API_KEY: 'k', ALCHEMY_POLICY_ID: 'p' })
+    const secret = JSON.stringify({ ALCHEMY_API_KEY: 'k', ALCHEMY_POLICY_ID: 'p', ALCHEMY_BSO_POLICY_ID: 'bso-policy-id' })
     const client = makeClient(secret)
     await expect(loadMonitoringCredentials('us-east-1', client)).rejects.toThrow(
       'missing required key "OWNER_PRIVATE_KEY"',
@@ -132,6 +149,7 @@ describe('loadMonitoringCredentials', () => {
     const secret = JSON.stringify({
       ALCHEMY_API_KEY: 'k',
       ALCHEMY_POLICY_ID: 'p',
+      ALCHEMY_BSO_POLICY_ID: 'bso-policy-id',
       OWNER_PRIVATE_KEY: 'not-a-hex-key',
     })
     const client = makeClient(secret)

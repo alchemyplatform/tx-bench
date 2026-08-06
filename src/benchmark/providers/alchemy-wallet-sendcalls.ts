@@ -61,7 +61,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
 
   constructor(
     private readonly apiKey: string,
-    private readonly policyId: string,
+    private readonly bsoPolicyId: string,
     private readonly canonicalTimeoutMs: number,
     private readonly network: string,
     private readonly createClient: ClientFactory,
@@ -217,7 +217,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
       signer,
       transport: alchemyWalletTransport({ apiKey: this.apiKey }),
       chain,
-      paymaster: { policyId: this.policyId },
+      paymaster: { policyId: this.bsoPolicyId },
     })
 
     const { id: callId } = await client.sendCalls({
@@ -247,7 +247,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
       signer,
       transport: alchemyWalletTransport({ apiKey: this.apiKey }),
       chain,
-      paymaster: { policyId: this.policyId },
+      paymaster: { policyId: this.bsoPolicyId },
     })
 
     // Calling to: signer.address (the EIP-7702 smart wallet itself) with empty
@@ -262,7 +262,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     // are included for explicitness — some SDK versions may require them.
     const prepared = await client.prepareCalls({
       calls,
-      capabilities: { paymaster: { policyId: this.policyId } },
+      capabilities: { paymaster: { policyId: this.bsoPolicyId } },
     })
 
     // signPreparedCalls accepts the whole prepareCalls result and returns signed calls.
@@ -340,11 +340,14 @@ export function createAlchemyWalletSendCallsAdapter(deps?: {
     async buildAccountClient(config: Config): Promise<AccountClient> {
       const cfg = config.providers.alchemy
       if (!cfg) {
-        throw new Error('Alchemy provider not configured — set ALCHEMY_API_KEY and ALCHEMY_POLICY_ID')
+        throw new Error('Alchemy provider not configured — set ALCHEMY_API_KEY')
+      }
+      if (!cfg.bsoPolicyId) {
+        throw new Error('BSO policy not configured — set ALCHEMY_BSO_POLICY_ID')
       }
       return new AlchemyWalletSendCallsAccountClient(
         cfg.apiKey,
-        cfg.policyId,
+        cfg.bsoPolicyId,
         config.timeouts.canonicalMs,
         config.network,
         createClient,

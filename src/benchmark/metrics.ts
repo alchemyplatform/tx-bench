@@ -75,6 +75,8 @@ export type RunInput =
       acceptedAtMs: number   // performance.now() when userOpHash was received
       canonical: CanonicalResult
       preconf: FlashblockResult
+      // Absent for modalities without an early-inclusion observer.
+      firstStatus?: CanonicalResult
       providerReceiptMs?: number  // wall-clock from acceptance to provider receipt arrival
       gas?: GasInput
       runIndex: number
@@ -108,11 +110,12 @@ export function buildRunRecord(input: RunInput): RunRecord {
     }
   }
 
-  const { provider, accountTypeLabel, sponsored, acceptedAtMs, canonical, preconf, providerReceiptMs, gas, runIndex } = input
+  const { provider, accountTypeLabel, sponsored, acceptedAtMs, canonical, preconf, firstStatus, providerReceiptMs, gas, runIndex } = input
   const submitMs = sponsored.submitMs
 
   const preconfStage = stageFromFlashblock(preconf, acceptedAtMs)
   const canonicalStage = stageFromCanonical(canonical, acceptedAtMs)
+  const firstStatusStage = firstStatus ? stageFromCanonical(firstStatus, acceptedAtMs) : undefined
 
   const providerReceiptStage: Stage =
     providerReceiptMs != null
@@ -152,11 +155,13 @@ export function buildRunRecord(input: RunInput): RunRecord {
       preconf: preconfStage,
       canonical: canonicalStage,
       providerReceipt: providerReceiptStage,
+      ...(firstStatusStage ? { firstStatus: firstStatusStage } : {}),
       ...(sponsored.prepareMs != null ? { prepare: makeStage('ok', sponsored.prepareMs) } : {}),
       ...(sponsored.sendMs != null ? { send: makeStage('ok', sponsored.sendMs) } : {}),
     },
     blockPositions,
     ...(canonical.observation ? { canonicalObservation: canonical.observation } : {}),
+    ...(firstStatus?.observation ? { firstStatusObservation: firstStatus.observation } : {}),
     ...(gas
       ? {
           gas: {

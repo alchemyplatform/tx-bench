@@ -12,6 +12,7 @@ import type { RunRecord, Stage } from '../benchmark/contracts'
 const CREDENTIALS: MonitoringCredentials = {
   ALCHEMY_API_KEY: 'test-key',
   ALCHEMY_POLICY_ID: 'test-policy',
+  ALCHEMY_BSO_POLICY_ID: 'test-bso-policy',
   OWNER_PRIVATE_KEY: ('0x' + 'aa'.repeat(32)) as `0x${string}`,
 }
 
@@ -49,6 +50,7 @@ function makeRecord(
       preconf: stageMs.preconf != null ? mk(stageMs.preconf) : notObserved,
       canonical: stageMs.canonical != null ? mk(stageMs.canonical) : notObserved,
       providerReceipt: stageMs.providerReceipt != null ? mk(stageMs.providerReceipt) : notObserved,
+      ...(stageMs.firstStatus != null && { firstStatus: mk(stageMs.firstStatus) }),
       ...(stageMs.prepare != null && { prepare: mk(stageMs.prepare) }),
       ...(stageMs.send != null && { send: mk(stageMs.send) }),
     },
@@ -151,14 +153,17 @@ describe('runOnce', () => {
     expect(canonicalSum?.value).toBeCloseTo(4.1, 6)
   })
 
-  it('splits canonical series by terminal_status while leaving other stages on the sentinel', async () => {
+  it('splits firstStatus by terminal_status, keeps canonical on 200, and leaves other stages on the sentinel', async () => {
     const metrics = makeMetrics()
-    // Two wallet attempts that reached canonical via different terminal signals:
-    // one on 110 (intermittent, ~1.2s) and one on 200 (~1.65s). Both also record
-    // a preconf from the neutral Flashblock oracle at ~0.2s.
-    const on110 = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 250, preconf: 208, canonical: 1243 }, 0)
-    on110.canonicalObservation = { api: 'wallet_getCallsStatus', pollCount: 6, terminalStatus: '110' }
-    const on200 = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 250, preconf: 212, canonical: 1650 }, 1)
+    // Two wallet attempts. Both mine (canonical 200 at ~1.65s) and both record a
+    // preconf from the neutral Flashblock oracle at ~0.2s. They differ in which
+    // status arrived first: one saw the intermittent 110 at ~1.24s, the other
+    // never did and its firstStatus is the same 200 that ended canonical.
+    const on110 = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 250, preconf: 208, firstStatus: 1243, canonical: 1650 }, 0)
+    on110.firstStatusObservation = { api: 'wallet_getCallsStatus', pollCount: 6, terminalStatus: '110' }
+    on110.canonicalObservation = { api: 'wallet_getCallsStatus', pollCount: 8, terminalStatus: '200' }
+    const on200 = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 250, preconf: 212, firstStatus: 1655, canonical: 1655 }, 1)
+    on200.firstStatusObservation = { api: 'wallet_getCallsStatus', pollCount: 8, terminalStatus: '200' }
     on200.canonicalObservation = { api: 'wallet_getCallsStatus', pollCount: 8, terminalStatus: '200' }
 
     const results = [makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', [on110, on200], 0)]
@@ -168,15 +173,23 @@ describe('runOnce', () => {
       v => v.metricName === 'txe_bench_stage_latency_seconds_count',
     )
 
-    const canonical = counts.filter(v => v.labels['stage'] === 'canonical')
-    expect(canonical.map(v => v.labels['terminal_status']).sort()).toEqual(['110', '200'])
-    for (const c of canonical) expect(c.value).toBe(1)
+    // This is the split the rundler fix will move: as 110 starts firing
+    // reliably, weight shifts from the 200 series to the 110 series.
+    const firstStatus = counts.filter(v => v.labels['stage'] === 'firstStatus')
+    expect(firstStatus.map(v => v.labels['terminal_status']).sort()).toEqual(['110', '200'])
+    for (const s of firstStatus) expect(s.value).toBe(1)
 
-    const canonical110Sum = (await metrics.stageLatency.get()).values.find(
+    const firstStatus110Sum = (await metrics.stageLatency.get()).values.find(
       v => v.metricName === 'txe_bench_stage_latency_seconds_sum' &&
-        v.labels['stage'] === 'canonical' && v.labels['terminal_status'] === '110',
+        v.labels['stage'] === 'firstStatus' && v.labels['terminal_status'] === '110',
     )
-    expect(canonical110Sum?.value).toBeCloseTo(1.243, 6)
+    expect(firstStatus110Sum?.value).toBeCloseTo(1.243, 6)
+
+    // canonical means mined, so it pools into a single 200 series.
+    const canonical = counts.filter(v => v.labels['stage'] === 'canonical')
+    expect(canonical).toHaveLength(1)
+    expect(canonical[0]!.labels['terminal_status']).toBe('200')
+    expect(canonical[0]!.value).toBe(2)
 
     // preconf and submit stay pooled: both attempts land in one series each, so
     // adding the label did not fragment the stages it does not describe.
@@ -748,12 +761,11 @@ describe('buildAdapterEntries', () => {
     expect(ids).toEqual(['alchemy-mav2-bso', 'alchemy-wallet-sendcalls'])
   })
 
-  it('excludes alchemy-mav2-bso when ALCHEMY_BSO_POLICY_ID is absent', () => {
+  // Both monitored adapters sponsor through the BSO policy, so without it there
+  // is nothing to run — no falling back to the regular ALCHEMY_POLICY_ID.
+  it('yields no entries when ALCHEMY_BSO_POLICY_ID is absent', () => {
     const env: EnvSource = { ALCHEMY_API_KEY: 'k', ALCHEMY_POLICY_ID: 'p' }
-    const entries = buildAdapterEntries(env)
-    const ids = entries.map(e => e.row.id)
-    expect(ids).not.toContain('alchemy-mav2-bso')
-    expect(ids).toContain('alchemy-wallet-sendcalls')
+    expect(buildAdapterEntries(env)).toEqual([])
   })
 
   it('never includes non-target adapters even when their env vars are present', () => {

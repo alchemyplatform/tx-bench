@@ -49,6 +49,7 @@ function collectSecrets(config: Config): Set<string> {
 
   add(config.providers.alchemy?.apiKey)
   add(config.providers.alchemy?.policyId)
+  add(config.providers.alchemy?.bsoPolicyId ?? undefined)
   add(config.providers.pimlico?.apiKey)
   add(config.providers.pimlico?.policyId)
   add(config.providers.zerodev?.apiKey)
