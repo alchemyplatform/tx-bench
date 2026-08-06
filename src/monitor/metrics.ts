@@ -1,6 +1,6 @@
 import { Counter, Gauge, Histogram, Registry } from 'prom-client'
 
-export const MEASUREMENT_EPOCH = 'base-flashblocks-v3'
+export const MEASUREMENT_EPOCH = 'wallet-bso-v1'
 
 const SUMMARY_LABELS = [
   'protocol_class', 'provider_id', 'observer_api', 'measurement_epoch', 'network', 'region',
@@ -8,9 +8,10 @@ const SUMMARY_LABELS = [
 const LATENCY_LABELS = [...SUMMARY_LABELS, 'stage', 'terminal_status'] as const
 const OUTCOME_LABELS = [...SUMMARY_LABELS, 'stage', 'outcome', 'terminal_status'] as const
 
-// Sentinel for stages that have no terminal status to report. Only the canonical
-// stage carries a real value (see terminalStatusForStage in loop.ts), so every
-// other stage collapses onto this single value instead of multiplying series.
+// Sentinel for stages that have no terminal status to report. Only the
+// status-driven stages — canonical and firstStatus — carry a real value (see
+// terminalStatusForStage in loop.ts), so every other stage collapses onto this
+// single value instead of multiplying series.
 export const TERMINAL_STATUS_NONE = 'none'
 
 export type SummaryLabels = {

@@ -6,16 +6,17 @@ import { buildRows, getRunnableRows } from '../benchmark/rows.js'
 import { createCanonicalOracle } from '../benchmark/oracle/canonical.js'
 import { createFlashblockOracle } from '../benchmark/oracle/flashblocks.js'
 import { runBenchmarkGrid, type ProviderEntry, type ProviderRunResult } from '../benchmark/service.js'
-import { alchemyMAv2BSOAdapter } from '../benchmark/providers/alchemy-mav2-bso.js'
 import { alchemyWalletSendCallsAdapter } from '../benchmark/providers/alchemy-wallet-sendcalls.js'
 import type { MonitoringCredentials } from './secrets.js'
 import { MEASUREMENT_EPOCH, TERMINAL_STATUS_NONE, type MonitorMetrics } from './metrics.js'
 import { serializeErrorRedacted } from '../benchmark/serialize.js'
 import type { ProtocolClass, RunRecord } from '../benchmark/contracts.js'
 
-// Monitoring covers only these two adapters for now — MAv2 BSO (ERC-4337) and
-// Wallet SendCalls (EIP-7702) — per operator decision. Others can be added later.
-const ALCHEMY_ADAPTERS = [alchemyMAv2BSOAdapter, alchemyWalletSendCallsAdapter]
+// Monitoring covers exactly one path: the recommended config — Wallet APIs with
+// a BSO policy and defaults (EIP-7702 + MAv2). The MAv2 BSO adapter stays in the
+// codebase for CLI and public cross-provider runs, which still need a raw 4337
+// path to compare against Pimlico and ZeroDev; it is just not monitored.
+const ALCHEMY_ADAPTERS = [alchemyWalletSendCallsAdapter]
 const NO_OP_WS = (_url: string) => ({ readyState: 3, send: () => {}, close: () => {}, onopen: null, onclose: null, onerror: null, onmessage: null })
 const MONITORING_RUN_COUNT_DEFAULT = 20
 const MONITOR_INTERVAL_MS = 60 * 60 * 1000

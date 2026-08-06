@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test'
 import { Registry } from 'prom-client'
-import { buildMetrics } from './metrics'
+import { buildMetrics, MEASUREMENT_EPOCH } from './metrics'
 import { runOnce, buildAdapterEntries, computeRegionalStartDelayMs, startLoop } from './loop'
 import type { MonitoringCredentials } from './secrets'
 import type { ProviderRunResult } from '../benchmark/service'
@@ -320,7 +320,7 @@ describe('runOnce', () => {
     )
     expect(canonicalError?.value).toBe(1)
     expect(canonicalError?.labels['observer_api']).toBe('wallet_getCallsStatus')
-    expect(canonicalError?.labels['measurement_epoch']).toBe('base-flashblocks-v3')
+    expect(canonicalError?.labels['measurement_epoch']).toBe(MEASUREMENT_EPOCH)
   })
 
   it('emits exactly one canonical outcome per attempt for reconciliation', async () => {
@@ -655,7 +655,7 @@ describe('runOnce', () => {
   it('logs a run_start event with network, region, run_count, and runnable providers before the run', async () => {
     const metrics = makeMetrics()
     const runner = mockGridRunner([])
-    // Alchemy + BSO configured → both monitored adapters are runnable.
+    // Alchemy + BSO configured → the one monitored adapter is runnable.
     const env: EnvSource = {
       NETWORK: 'base-mainnet',
       NEUTRAL_RPC_URL: 'https://mainnet.base.org',
@@ -679,8 +679,7 @@ describe('runOnce', () => {
     expect(start).toContain('"network":"base-mainnet"')
     expect(start).toContain('"region":"us-east-1"')
     expect(start).toContain('"run_count":20')
-    expect(start).toContain('alchemy-mav2-bso')
-    expect(start).toContain('alchemy-wallet-sendcalls')
+    expect(start).toContain('"providers":["alchemy-wallet-sendcalls"]')
     // run_start is emitted before run_complete
     expect(logs.findIndex(l => l.includes('"event":"run_start"')))
       .toBeLessThan(logs.findIndex(l => l.includes('"event":"run_complete"')))
@@ -750,15 +749,25 @@ describe('runOnce', () => {
 })
 
 describe('buildAdapterEntries', () => {
-  it('includes only alchemy-mav2-bso and alchemy-wallet-sendcalls when fully configured', () => {
+  it('monitors the Wallet path alone when fully configured', () => {
     const env: EnvSource = {
       ALCHEMY_API_KEY: 'k',
       ALCHEMY_POLICY_ID: 'p',
       ALCHEMY_BSO_POLICY_ID: 'bso-p',
     }
     const entries = buildAdapterEntries(env)
-    const ids = entries.map(e => e.row.id).sort()
-    expect(ids).toEqual(['alchemy-mav2-bso', 'alchemy-wallet-sendcalls'])
+    expect(entries.map(e => e.row.id)).toEqual(['alchemy-wallet-sendcalls'])
+  })
+
+  // The 4337 adapter is still built and tested — it is only unmonitored, so the
+  // CLI can keep reproducing the cross-provider comparison on demand.
+  it('does not monitor the MAv2 BSO row even when its env is present', () => {
+    const env: EnvSource = {
+      ALCHEMY_API_KEY: 'k',
+      ALCHEMY_POLICY_ID: 'p',
+      ALCHEMY_BSO_POLICY_ID: 'bso-p',
+    }
+    expect(buildAdapterEntries(env).map(e => e.row.id)).not.toContain('alchemy-mav2-bso')
   })
 
   // Both monitored adapters sponsor through the BSO policy, so without it there
