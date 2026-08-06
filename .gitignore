@@ -6,6 +6,10 @@ results*.json
 runs/
 progress.md
 
+# Monitoring artifacts are kept local: the Grafana dashboard export is large and
+# generated, and the live dashboard is the real artifact.
+monitoring/
+
 # Local agent artifacts and OS noise
 .pi-subagents/
 .DS_Store

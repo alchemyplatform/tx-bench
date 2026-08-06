@@ -27,7 +27,7 @@ export type ProgressEvent =
   | { kind: 'iteration-done'; iteration: number }
 
 export type RunBenchmarkOptions = {
-  canonicalSource?: 'default' | 'preconfirmation'
+  canonicalSource?: 'default' | 'earliest-signal'
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ export async function runBenchmarkGrid(
   onProgress?: (event: ProgressEvent) => void,
   options: RunBenchmarkOptions = {},
 ): Promise<ProviderRunResult[]> {
-  const usePreconfirmationCanonical = options.canonicalSource === 'preconfirmation'
+  const useEarliestSignalCanonical = options.canonicalSource === 'earliest-signal'
 
   const serializeBenchmarkError = (error: unknown): string => serializeErrorRedacted(
     error,
@@ -63,12 +63,14 @@ export async function runBenchmarkGrid(
     })
   )
 
-  // Only modalities without a provider-native preconfirmation signal depend
-  // on the shared Flashblock subscription. Pre-warm it before any timed write,
-  // but keep confirmed inclusion available as the fallback if readiness fails.
-  const needsRawFlashblocks = usePreconfirmationCanonical && providers.some(({ row }) => {
+  // Only modalities without a provider-native early-inclusion observer depend on
+  // the shared Flashblock subscription for their canonical stage. Pre-warm it
+  // before any timed write, but keep confirmed inclusion available as the
+  // fallback if readiness fails. (Every modality still uses the Flashblock
+  // subscription for the `preconf` stage regardless.)
+  const needsRawFlashblocks = useEarliestSignalCanonical && providers.some(({ row }) => {
     const client = clientMap.get(row.id)
-    return client != null && client.preconfirmationObserver == null
+    return client != null && client.earlyInclusionObserver == null
   })
   const rawFlashblocksReady = needsRawFlashblocks
     ? await flashblockOracle.ready(config.timeouts.preconfMs).then(
@@ -159,17 +161,17 @@ export async function runBenchmarkGrid(
             },
           }))
 
-          if (usePreconfirmationCanonical && client.preconfirmationObserver) {
-            const preconfirmationObserverApi = client.preconfirmationObserver.api
+          if (useEarliestSignalCanonical && client.earlyInclusionObserver) {
+            const earlyObserverApi = client.earlyInclusionObserver.api
             const [observedCanonical, observedPreconf] = await Promise.all([
-              client.preconfirmationObserver.watch(
+              client.earlyInclusionObserver.watch(
                 sponsored.canonicalIdentifier ?? sponsored.userOpHash,
                 config.timeouts.preconfMs,
               ).catch((error): CanonicalResult => ({
                 status: 'observer-error',
                 reason: serializeBenchmarkError(error),
                 observation: {
-                  api: preconfirmationObserverApi,
+                  api: earlyObserverApi,
                   pollCount: 0,
                   errorClass: error instanceof Error ? error.name : typeof error,
                 },
@@ -179,7 +181,7 @@ export async function runBenchmarkGrid(
             ])
             canonical = observedCanonical
             preconf = observedPreconf
-          } else if (usePreconfirmationCanonical) {
+          } else if (useEarliestSignalCanonical) {
             const [confirmedCanonical, observedPreconf] = await Promise.all([
               observeConfirmedCanonical(),
               rawFlashblocksReady

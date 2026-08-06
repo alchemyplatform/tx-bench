@@ -151,6 +151,43 @@ describe('runOnce', () => {
     expect(canonicalSum?.value).toBeCloseTo(4.1, 6)
   })
 
+  it('splits canonical series by terminal_status while leaving other stages on the sentinel', async () => {
+    const metrics = makeMetrics()
+    // Two wallet attempts that reached canonical via different terminal signals:
+    // one on 110 (intermittent, ~1.2s) and one on 200 (~1.65s). Both also record
+    // a preconf from the neutral Flashblock oracle at ~0.2s.
+    const on110 = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 250, preconf: 208, canonical: 1243 }, 0)
+    on110.canonicalObservation = { api: 'wallet_getCallsStatus', pollCount: 6, terminalStatus: '110' }
+    const on200 = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 250, preconf: 212, canonical: 1650 }, 1)
+    on200.canonicalObservation = { api: 'wallet_getCallsStatus', pollCount: 8, terminalStatus: '200' }
+
+    const results = [makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', [on110, on200], 0)]
+    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
+
+    const counts = (await metrics.stageLatency.get()).values.filter(
+      v => v.metricName === 'txe_bench_stage_latency_seconds_count',
+    )
+
+    const canonical = counts.filter(v => v.labels['stage'] === 'canonical')
+    expect(canonical.map(v => v.labels['terminal_status']).sort()).toEqual(['110', '200'])
+    for (const c of canonical) expect(c.value).toBe(1)
+
+    const canonical110Sum = (await metrics.stageLatency.get()).values.find(
+      v => v.metricName === 'txe_bench_stage_latency_seconds_sum' &&
+        v.labels['stage'] === 'canonical' && v.labels['terminal_status'] === '110',
+    )
+    expect(canonical110Sum?.value).toBeCloseTo(1.243, 6)
+
+    // preconf and submit stay pooled: both attempts land in one series each, so
+    // adding the label did not fragment the stages it does not describe.
+    for (const stage of ['preconf', 'submit']) {
+      const series = counts.filter(v => v.labels['stage'] === stage)
+      expect(series).toHaveLength(1)
+      expect(series[0]!.labels['terminal_status']).toBe('none')
+      expect(series[0]!.value).toBe(2)
+    }
+  })
+
   it('increments attempts and failures counters cumulatively', async () => {
     const metrics = makeMetrics()
     const records = [

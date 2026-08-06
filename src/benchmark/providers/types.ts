@@ -25,10 +25,15 @@ export interface AccountClient {
   // Adapter-owned observers preserve provider-specific canonical semantics and
   // keep downstream observation outside the timed submission operation.
   readonly canonicalObserver?: CanonicalObserver
-  // Optional provider-native preconfirmation observer. Base monitoring prefers
-  // this over the raw Flashblock stream when the write API exposes an
-  // authoritative preconfirmation state (for example Wallet status 110).
-  readonly preconfirmationObserver?: CanonicalObserver
+  // Optional provider-native observer for the earliest inclusion state the write
+  // API exposes (for example Wallet status 110). Base monitoring prefers this over
+  // the raw Flashblock stream for the `canonical` stage when present.
+  //
+  // This is NOT a preconfirmation signal: for Wallet SendCalls it resolves at
+  // block level, ~0.7-1.4s behind actual Flashblock inclusion. Flashblock-speed
+  // preconfirmation comes only from the neutral oracle feeding the `preconf` stage,
+  // which is why cross-modality comparisons must use `preconf` and not `canonical`.
+  readonly earlyInclusionObserver?: CanonicalObserver
   // Optional: called once after buildAccountClient and before the timed loop to
   // ensure the account is deployed on-chain (e.g. stable-owner self-bootstrap).
   // When absent, the service skips it. Excluded from all metrics.

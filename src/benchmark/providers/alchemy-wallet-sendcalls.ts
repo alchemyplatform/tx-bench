@@ -39,7 +39,14 @@ type StatusRequest = (request: {
 
 const BOOTSTRAP_POLL_INTERVAL_MS = 2_000
 const BOOTSTRAP_POLL_TIMEOUT_MS = 30_000
-const STATUS_PRECONFIRMED = 110
+// 110 is the earliest block-level inclusion signal wallet_getCallsStatus exposes.
+// It is NOT a Flashblock preconfirmation, despite being named that here previously:
+// measured on Base mainnet (scripts/wallet-status-110-probe.ts, 2026-08-06) it fires
+// on only a minority of ops and trails actual Flashblock inclusion by ~0.7-1.4s,
+// carrying a receipt whose blockNumber is one past pendingBundle.sentAtBlock.
+// Flashblock-speed preconfirmation is observable only via the neutral
+// newFlashblockTransactions oracle, which feeds the separate `preconf` stage.
+const STATUS_BLOCK_INCLUDED = 110
 const STATUS_CONFIRMED = 200
 
 // ── AccountClient impl ────────────────────────────────────────────────────────
@@ -50,7 +57,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
   // ensureDeployed is only attached when stableOwner is set (see constructor).
   readonly ensureDeployed?: () => Promise<void>
   readonly canonicalObserver: CanonicalObserver
-  readonly preconfirmationObserver: CanonicalObserver
+  readonly earlyInclusionObserver: CanonicalObserver
 
   constructor(
     private readonly apiKey: string,
@@ -77,28 +84,27 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
       api: 'wallet_getCallsStatus',
       watch: (identifier, timeoutMs) => this._watchStatus(identifier, timeoutMs, 'confirmed', ownerPrivateKey),
     }
-    this.preconfirmationObserver = {
+    this.earlyInclusionObserver = {
       api: 'wallet_getCallsStatus',
-      watch: (identifier, timeoutMs) => this._watchStatus(identifier, timeoutMs, 'preconfirmed', ownerPrivateKey),
+      watch: (identifier, timeoutMs) => this._watchStatus(identifier, timeoutMs, 'block-included', ownerPrivateKey),
     }
   }
 
   private async _watchStatus(
     callId: `0x${string}`,
     timeoutMs: number,
-    target: 'preconfirmed' | 'confirmed',
+    target: 'block-included' | 'confirmed',
     ownerPrivateKey?: `0x${string}`,
   ): Promise<CanonicalResult> {
     const request = this.injectedStatusRequest ?? this._createStatusRequest()
     const polled = await pollObserver({
       request: () => request({ method: 'wallet_getCallsStatus', params: [callId] }),
-      // 100 is pending, 110 means Flashblock-preconfirmed, and 200 means
-      // confirmed. Other 1xx values remain pending for both targets. If a poll
+      // 100 is pending; other 1xx values remain pending for both targets. If a poll
       // misses 110 and observes 200, confirmation still satisfies the earlier
-      // preconfirmation target conservatively.
+      // block-inclusion target conservatively.
       isPending: response => response.status >= 100
         && response.status < STATUS_CONFIRMED
-        && !(target === 'preconfirmed' && response.status === STATUS_PRECONFIRMED),
+        && !(target === 'block-included' && response.status === STATUS_BLOCK_INCLUDED),
       timeoutMs,
       isRetryableError: isRetryableObserverError,
       now: this.observerNow,
@@ -127,7 +133,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     const response = polled.value
     const terminalStatus = String(response.status)
     if (response.status === STATUS_CONFIRMED
-      || (target === 'preconfirmed' && response.status === STATUS_PRECONFIRMED)) {
+      || (target === 'block-included' && response.status === STATUS_BLOCK_INCLUDED)) {
       const receipt = response.receipts?.[0]
       return {
         status: 'ok',

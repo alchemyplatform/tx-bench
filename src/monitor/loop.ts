@@ -9,7 +9,7 @@ import { runBenchmarkGrid, type ProviderEntry, type ProviderRunResult } from '..
 import { alchemyMAv2BSOAdapter } from '../benchmark/providers/alchemy-mav2-bso.js'
 import { alchemyWalletSendCallsAdapter } from '../benchmark/providers/alchemy-wallet-sendcalls.js'
 import type { MonitoringCredentials } from './secrets.js'
-import { MEASUREMENT_EPOCH, type MonitorMetrics } from './metrics.js'
+import { MEASUREMENT_EPOCH, TERMINAL_STATUS_NONE, type MonitorMetrics } from './metrics.js'
 import { serializeErrorRedacted } from '../benchmark/serialize.js'
 import type { ProtocolClass, RunRecord } from '../benchmark/contracts.js'
 
@@ -178,7 +178,7 @@ function createDefaultGridRunner(): GridRunner {
             iteration: ev.iteration,
           }))
         }
-      }, { canonicalSource: useFlashblockCanonical ? 'preconfirmation' : 'default' })
+      }, { canonicalSource: useFlashblockCanonical ? 'earliest-signal' : 'default' })
     } finally {
       canonicalOracle.close()
       flashblockOracle.close()
@@ -200,6 +200,22 @@ function observerApiForProvider(provider: string, network: string): string {
 function expectedStages(protocolClass: ProtocolClass): Array<keyof RunRecord['stages']> {
   const common: Array<keyof RunRecord['stages']> = ['submit', 'preconf', 'canonical', 'providerReceipt']
   return protocolClass === 'wallet-sendcalls' ? ['prepare', 'send', ...common] : common
+}
+
+// terminalStatus describes what ended the *canonical* observation, so only that
+// stage gets a real value. Tagging submit/prepare/preconf with it would be
+// meaningless and would multiply those series by every observed status value.
+//
+// This is what makes the wallet_getCallsStatus 110-vs-200 split visible in
+// Grafana: 110 fires only intermittently and lands ~1s behind actual Flashblock
+// inclusion, so pooling both under one series hides which signal a given
+// canonical measurement actually came from.
+function terminalStatusForStage(
+  record: RunRecord,
+  stage: keyof RunRecord['stages'],
+): string {
+  if (stage !== 'canonical') return TERMINAL_STATUS_NONE
+  return record.canonicalObservation?.terminalStatus ?? TERMINAL_STATUS_NONE
 }
 
 function redactLogText(value: string | undefined, credentials: MonitoringCredentials): string | undefined {
@@ -311,9 +327,10 @@ function emitRunMetrics(results: ProviderRunResult[], metrics: MonitorMetrics, n
       for (const rec of observerRecords) {
         for (const stage of expectedStages(rec.protocolClass)) {
           const value = rec.stages[stage] ?? { status: 'not-observed' as const }
-          metrics.stageOutcomesTotal.inc({ ...summaryLabels, stage, outcome: value.status })
+          const terminal_status = terminalStatusForStage(rec, stage)
+          metrics.stageOutcomesTotal.inc({ ...summaryLabels, stage, outcome: value.status, terminal_status })
           if (value.status === 'ok' && value.ms != null) {
-            metrics.stageLatency.observe({ ...summaryLabels, stage }, value.ms / 1000)
+            metrics.stageLatency.observe({ ...summaryLabels, stage, terminal_status }, value.ms / 1000)
           }
         }
       }
