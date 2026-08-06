@@ -356,26 +356,23 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
   it('measures preconf, firstStatus, and canonical as three separate observations', async () => {
     const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
     const callId = ('0x' + 'ab'.repeat(32)) as `0x${string}`
-    const confirmedWatch = mock(async () => ({
-      status: 'ok' as const,
-      blockNumber: 124n,
-      txHash: ('0x' + 'cd'.repeat(32)) as `0x${string}`,
-      tMs: 2_400,
-      observation: {
-        api: 'wallet_getCallsStatus' as const,
-        pollCount: 6,
-        terminalStatus: '200',
+    // One staged observer, one poll stream, two results — the service must not
+    // open a second status watch.
+    const stagesWatch = mock(async () => ({
+      firstStatus: {
+        status: 'ok' as const,
+        tMs: 700,
+        observation: { api: 'wallet_getCallsStatus' as const, pollCount: 2, terminalStatus: '110' },
+      },
+      canonical: {
+        status: 'ok' as const,
+        blockNumber: 124n,
+        txHash: ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+        tMs: 2_400,
+        observation: { api: 'wallet_getCallsStatus' as const, pollCount: 6, terminalStatus: '200' },
       },
     }))
-    const earlyInclusionWatch = mock(async () => ({
-      status: 'ok' as const,
-      tMs: 700,
-      observation: {
-        api: 'wallet_getCallsStatus' as const,
-        pollCount: 2,
-        terminalStatus: '110',
-      },
-    }))
+    const confirmedWatch = mock(async () => { throw new Error('canonicalObserver must not run alongside statusStagesObserver') })
     const flashblockWatch = mock(async () => ({
       status: 'ok' as const,
       blockNumber: 123n,
@@ -393,9 +390,9 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
             api: 'wallet_getCallsStatus' as const,
             watch: confirmedWatch,
           },
-          earlyInclusionObserver: {
+          statusStagesObserver: {
             api: 'wallet_getCallsStatus' as const,
-            watch: earlyInclusionWatch,
+            watch: stagesWatch,
           },
           async sendSponsored() {
             return {
@@ -419,10 +416,11 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
     )
 
     expect(flashblockReady).not.toHaveBeenCalled()
-    // firstStatus gets the full canonical timeout — it is a status poll like
-    // canonical, not a preconfirmation window.
-    expect(earlyInclusionWatch).toHaveBeenCalledWith(callId, 10_000)
-    expect(confirmedWatch).toHaveBeenCalledWith(callId, 10_000)
+    // Exactly one status watch, given the full canonical timeout — these are
+    // status polls, not a preconfirmation window.
+    expect(stagesWatch).toHaveBeenCalledTimes(1)
+    expect(stagesWatch).toHaveBeenCalledWith(callId, 10_000)
+    expect(confirmedWatch).not.toHaveBeenCalled()
     expect(flashblockWatch).toHaveBeenCalledWith(userOpHash, 5_000)
 
     const record = result.records[0]

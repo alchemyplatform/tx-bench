@@ -132,7 +132,7 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
     })
   })
 
-  it('uses status 110 as the provider-native Flashblock preconfirmation', async () => {
+  it('captures 110 as firstStatus and 200 as canonical from ONE poll stream', async () => {
     const calls: Array<{ method: string; params: readonly unknown[] }> = []
     const responses = [
       { status: 100 },
@@ -148,20 +148,61 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
     })
     const client = await adapter.buildAccountClient(makeConfig())
 
-    const result = await client.earlyInclusionObserver!.watch(callId, 10_000)
+    const stages = await client.statusStagesObserver!.watch(callId, 10_000)
 
-    expect(calls).toHaveLength(2)
+    // Three polls total for BOTH stages — a second observer would double this.
+    expect(calls).toHaveLength(3)
     expect(calls.every(call => call.method === 'wallet_getCallsStatus')).toBe(true)
     expect(calls.every(call => call.params[0] === callId)).toBe(true)
-    expect(result).toEqual({
+
+    expect(stages.firstStatus).toEqual({
       status: 'ok',
       tMs: expect.any(Number),
-      observation: {
-        api: 'wallet_getCallsStatus',
-        pollCount: 2,
-        terminalStatus: '110',
-      },
+      observation: { api: 'wallet_getCallsStatus', pollCount: 2, terminalStatus: '110' },
     })
+    expect(stages.canonical).toEqual({
+      status: 'ok',
+      blockNumber: 100n,
+      txHash,
+      tMs: expect.any(Number),
+      observation: { api: 'wallet_getCallsStatus', pollCount: 3, terminalStatus: '200' },
+    })
+    // The ordering the plan asserts, guaranteed by construction.
+    if (stages.firstStatus.status !== 'ok' || stages.canonical.status !== 'ok') {
+      throw new Error('expected both stages to be ok')
+    }
+    expect(stages.firstStatus.tMs).toBeLessThanOrEqual(stages.canonical.tMs)
+  })
+
+  it('reports firstStatus as the identical observation as canonical when 110 never fires', async () => {
+    const responses = [
+      { status: 100 },
+      { status: 200, receipts: [{ blockNumber: '0x64', transactionHash: txHash }] },
+    ]
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      statusRequest: async () => responses.shift()!,
+      observerSleep: async () => {},
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const stages = await client.statusStagesObserver!.watch(callId, 10_000)
+
+    // Not "approximately equal" — the same object. Two poll loops would have
+    // produced two timings of this one event, differing by up to a poll interval.
+    expect(stages.firstStatus).toBe(stages.canonical)
+    expect(stages.canonical.observation?.terminalStatus).toBe('200')
+  })
+
+  it('propagates a failed poll to both stages', async () => {
+    const adapter = createAlchemyWalletSendCallsAdapter({
+      statusRequest: async () => ({ status: 500 }),
+    })
+    const client = await adapter.buildAccountClient(makeConfig())
+
+    const stages = await client.statusStagesObserver!.watch(callId, 10_000)
+
+    expect(stages.canonical.status).toBe('integrity-fail')
+    expect(stages.firstStatus).toBe(stages.canonical)
   })
 
   for (const status of [400, 500, 600]) {

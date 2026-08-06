@@ -3,7 +3,7 @@ import { aggregateRuns } from './aggregate.js'
 import { serializeErrorRedacted } from './serialize.js'
 import type { Config } from './config.js'
 import type { ProtocolClass, ProviderMetrics, ProviderRow, RunRecord } from './contracts.js'
-import type { ProviderAdapter } from './providers/types.js'
+import type { ProviderAdapter, StatusStages } from './providers/types.js'
 import type { CanonicalOracle, CanonicalResult } from './oracle/canonical.js'
 import type { FlashblockOracle, FlashblockResult } from './oracle/flashblocks.js'
 
@@ -121,15 +121,10 @@ export async function runBenchmarkGrid(
           let firstStatus: CanonicalResult | undefined
           let preconf: FlashblockResult
 
-          const observerApi = client.canonicalObserver?.api ?? 'generic-log-scan'
-          const observeConfirmedCanonical = (): Promise<CanonicalResult> => (
-            client.canonicalObserver
-              ? client.canonicalObserver.watch(
-                  sponsored.canonicalIdentifier ?? sponsored.userOpHash,
-                  config.timeouts.canonicalMs,
-                )
-              : canonicalOracle.watch(sponsored.userOpHash, fromBlock!, config.timeouts.canonicalMs)
-          ).catch((error): CanonicalResult => ({
+          const statusObserver = client.statusStagesObserver
+          const observerApi = statusObserver?.api ?? client.canonicalObserver?.api ?? 'generic-log-scan'
+          const identifier = sponsored.canonicalIdentifier ?? sponsored.userOpHash
+          const observerError = (error: unknown): CanonicalResult => ({
             status: 'observer-error',
             reason: serializeBenchmarkError(error),
             observation: {
@@ -137,38 +132,40 @@ export async function runBenchmarkGrid(
               pollCount: 0,
               errorClass: error instanceof Error ? error.name : typeof error,
             },
-          }))
+          })
 
-          // The three stages are independent observations of the same send and
-          // run concurrently: preconf is the neutral Flashblocks measurement,
-          // firstStatus is the provider's first terminal status (110 or 200),
-          // canonical waits for 200 — actually mined — on every network.
-          const earlyObserver = client.earlyInclusionObserver
-          const observeFirstStatus = (): Promise<CanonicalResult> | undefined => (
-            earlyObserver
-              ? earlyObserver.watch(
-                  sponsored.canonicalIdentifier ?? sponsored.userOpHash,
-                  config.timeouts.canonicalMs,
-                ).catch((error): CanonicalResult => ({
-                  status: 'observer-error',
-                  reason: serializeBenchmarkError(error),
-                  observation: {
-                    api: earlyObserver.api,
-                    pollCount: 0,
-                    errorClass: error instanceof Error ? error.name : typeof error,
-                  },
-                }))
-              : undefined
-          )
+          // Status stages come from ONE poll stream, not two. firstStatus and
+          // canonical describe the same response whenever the provider emits no
+          // early terminal signal, so polling twice would make them disagree
+          // about it by up to one poll interval.
+          // Modalities without a staged status API report canonical only.
+          type ObservedStages = { firstStatus?: CanonicalResult; canonical: CanonicalResult }
+          const observeStatusStages = (): Promise<ObservedStages> => {
+            if (statusObserver) {
+              return statusObserver.watch(identifier, config.timeouts.canonicalMs)
+                .catch((error): StatusStages => {
+                  const failed = observerError(error)
+                  return { firstStatus: failed, canonical: failed }
+                })
+            }
+            return (
+              client.canonicalObserver
+                ? client.canonicalObserver.watch(identifier, config.timeouts.canonicalMs)
+                : canonicalOracle.watch(sponsored.userOpHash, fromBlock!, config.timeouts.canonicalMs)
+            )
+              .catch(observerError)
+              .then((result): ObservedStages => ({ canonical: result }))
+          }
 
-          const [observedCanonical, observedFirstStatus, observedPreconf] = await Promise.all([
-            observeConfirmedCanonical(),
-            observeFirstStatus(),
+          // preconf is measured concurrently and independently — it is the
+          // neutral Flashblocks oracle, not a status poll.
+          const [stages, observedPreconf] = await Promise.all([
+            observeStatusStages(),
             flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs)
               .catch(() => ({ status: 'not-observed' as const })),
           ])
-          canonical = observedCanonical
-          firstStatus = observedFirstStatus
+          canonical = stages.canonical
+          firstStatus = stages.firstStatus
           preconf = observedPreconf
 
           records.push(buildRunRecord({

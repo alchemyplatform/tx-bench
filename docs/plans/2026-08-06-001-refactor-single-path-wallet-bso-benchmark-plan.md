@@ -97,9 +97,21 @@ Incidental notes: the prepared object carries a `feePayment` key alongside `type
 - `src/benchmark/contracts.ts:41-48` (`RunRecord['stages']`) and `:86-93` (`ProviderMetrics['stages']`).
 - `src/benchmark/metrics.ts`: build the stage from a `CanonicalResult`.
 - `src/monitor/loop.ts`: add to `expectedStages`; extend `terminalStatusForStage` so `firstStatus` also carries a real terminal status (it is currently canonical-only).
-- `src/benchmark/service.ts`: run all three observers concurrently per attempt — flashblock WS → `preconf`, `earlyInclusionObserver` → `firstStatus`, `canonicalObserver` → `canonical`.
+- `src/benchmark/service.ts`: run the status observation and the flashblock WS concurrently per attempt — flashblock WS → `preconf`, status stream → `firstStatus` + `canonical`.
 
 No new observer code is needed for datapoint 2: `canonicalObserver` (target `'confirmed'`, 200-only) already exists and is simply **never called on Base today**, because the earliest-signal branch short-circuits it.
+
+**Amended 2026-08-06 after live validation.** The first implementation ran
+`earlyInclusionObserver` and `canonicalObserver` as two concurrent poll loops. That fails
+this plan's own ordering criterion: when 110 does not fire, both loops wait for the *same*
+200 and their poll phases differ by up to one 250ms interval, so `firstStatus` can land
+after `canonical`. Observed on 2 of 5 live attempts (inversions of 88ms and 55ms).
+
+Replaced with a single poll stream: `AccountClient.earlyInclusionObserver` →
+`statusStagesObserver`, returning `{ firstStatus, canonical }` from one loop that records
+110 if it arrives and continues to 200. Ordering now holds by construction, per-attempt
+`wallet_getCallsStatus` load halves, and when 110 does not fire both stages report the
+*same observation object* rather than two timings of one event.
 
 ### Unit 3 — Delete the earliest-signal machinery
 

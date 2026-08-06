@@ -13,6 +13,11 @@ type PollObserverOptions<T> = PollingDependencies & {
   isPending: (value: T) => boolean
   timeoutMs: number
   isRetryableError?: (error: unknown) => boolean
+  // Called for every polled value with the timestamp that poll observed, so a
+  // caller can record an intermediate signal without opening a second poll
+  // loop. Two loops against one API disagree by up to one poll interval about
+  // the same event.
+  onPoll?: (value: T, atMs: number, pollCount: number) => void
 }
 
 const FAST_POLL_INTERVAL_MS = 250
@@ -30,9 +35,10 @@ export async function pollObserver<T>(options: PollObserverOptions<T>): Promise<
     pollCount++
     try {
       const value = await options.request()
+      const observedAtMs = now()
+      options.onPoll?.(value, observedAtMs, pollCount)
       lastRetryableError = undefined
       if (!options.isPending(value)) {
-        const observedAtMs = now()
         if (observedAtMs - startedAt >= options.timeoutMs) {
           return { kind: 'timed-out', pollCount }
         }

@@ -1,6 +1,25 @@
 import type { Config } from '../config.js'
 import type { ProtocolClass } from '../contracts.js'
-import type { CanonicalObserver } from '../oracle/canonical.js'
+import type { CanonicalObserver, CanonicalObserverApi, CanonicalResult } from '../oracle/canonical.js'
+
+// Both stages of one status stream, observed by a single poll loop.
+//
+// They must come from one loop, not two: `firstStatus` and `canonical` differ
+// only when the provider emits an early terminal signal (Wallet status 110). In
+// every other attempt they describe the SAME response, and two independent
+// pollers would disagree about it by up to one poll interval — sometimes
+// reporting `firstStatus` as later than `canonical`.
+export type StatusStages = {
+  // First terminal status the API reported, whatever it was.
+  firstStatus: CanonicalResult
+  // Confirmed inclusion — status 200 only.
+  canonical: CanonicalResult
+}
+
+export type StatusStagesObserver = {
+  readonly api: CanonicalObserverApi
+  watch(identifier: `0x${string}`, timeoutMs: number): Promise<StatusStages>
+}
 
 export type SponsoredResult = {
   userOpHash: `0x${string}`
@@ -25,15 +44,16 @@ export interface AccountClient {
   // Adapter-owned observers preserve provider-specific canonical semantics and
   // keep downstream observation outside the timed submission operation.
   readonly canonicalObserver?: CanonicalObserver
-  // Optional provider-native observer for the earliest inclusion state the write
-  // API exposes (for example Wallet status 110). Base monitoring prefers this over
-  // the raw Flashblock stream for the `canonical` stage when present.
+  // Optional. When a provider's status API reports an early terminal signal
+  // before confirmation (Wallet status 110), this observer measures both stages
+  // in one poll stream. When present the service uses it instead of
+  // canonicalObserver, and records the `firstStatus` stage.
   //
-  // This is NOT a preconfirmation signal: for Wallet SendCalls it resolves at
-  // block level, ~0.7-1.4s behind actual Flashblock inclusion. Flashblock-speed
-  // preconfirmation comes only from the neutral oracle feeding the `preconf` stage,
-  // which is why cross-modality comparisons must use `preconf` and not `canonical`.
-  readonly earlyInclusionObserver?: CanonicalObserver
+  // Neither stage is a preconfirmation signal: for Wallet SendCalls even 110
+  // resolves at block level, ~0.7-1.4s behind actual Flashblock inclusion.
+  // Flashblock-speed preconfirmation comes only from the neutral oracle feeding
+  // the `preconf` stage.
+  readonly statusStagesObserver?: StatusStagesObserver
   // Optional: called once after buildAccountClient and before the timed loop to
   // ensure the account is deployed on-chain (e.g. stable-owner self-bootstrap).
   // When absent, the service skips it. Excluded from all metrics.
