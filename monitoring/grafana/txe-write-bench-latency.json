@@ -1,0 +1,4228 @@
+{
+  "annotations": [
+    {
+      "kind": "AnnotationQuery",
+      "spec": {
+        "builtIn": true,
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "query": {
+          "datasource": {
+            "name": "-- Grafana --"
+          },
+          "group": "grafana",
+          "kind": "DataQuery",
+          "spec": {},
+          "version": "v0"
+        }
+      }
+    }
+  ],
+  "cursorSync": "Tooltip",
+  "editable": true,
+  "elements": {
+    "panel-1": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "count(count by (region) (txe_bench_attempts_total{environment=~\"$environment\",region=~\"$region\",network=~\"$network\"}))",
+                      "instant": true,
+                      "legendFormat": "",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "",
+        "id": 1,
+        "links": [],
+        "title": "Regions reporting",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "short"
+              },
+              "overrides": []
+            },
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "percentChangeColorMode": "standard",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-10": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"submit\"}[6h])))",
+                      "instant": false,
+                      "legendFormat": "{{region}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Rolling p95 for submit by region (trailing 6h pooled window at each point). One line per region — compare regional latency and trend over time.",
+        "id": 10,
+        "links": [],
+        "title": "submit p95 by region (trailing 6h)",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull",
+                  "max"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "right",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "desc"
+              }
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-11": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.50, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"prepare\"}[$__range]))), \"percentile\", \"p50\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p50",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.90, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"prepare\"}[$__range]))), \"percentile\", \"p90\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p90",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"prepare\"}[$__range]))), \"percentile\", \"p95\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p95",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.99, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"prepare\"}[$__range]))), \"percentile\", \"p99\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p99",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "D"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(sum by (region) (increase(txe_bench_stage_latency_seconds_count{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"prepare\"}[$__range])), \"percentile\", \"samples\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / samples",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "E"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": [
+              {
+                "group": "joinByLabels",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "value": "percentile"
+                  }
+                }
+              },
+              {
+                "group": "organize",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "excludeByName": {
+                      "Time": true
+                    },
+                    "includeByName": {},
+                    "indexByName": {
+                      "p50": 1,
+                      "p90": 2,
+                      "p95": 3,
+                      "p99": 4,
+                      "region": 0,
+                      "samples": 5
+                    },
+                    "orderByMode": "auto",
+                    "renameByName": {}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "description": "Pooled p50/p90/p95/p99 for prepare per region, over the dashboard time range (histogram_quantile(rate(txe_bench_stage_latency_seconds_bucket[$__range]))). 'samples' = attempts pooled in the window (confidence context). Set range to 6h-24h. sum by (region, le) drops process_id so restarts stay continuous.",
+        "id": 11,
+        "links": [],
+        "title": "prepare — p50/p90/p95/p99 by region",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "samples"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "showHeader": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-12": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.50, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"send\"}[$__range]))), \"percentile\", \"p50\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p50",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.90, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"send\"}[$__range]))), \"percentile\", \"p90\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p90",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"send\"}[$__range]))), \"percentile\", \"p95\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p95",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.99, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"send\"}[$__range]))), \"percentile\", \"p99\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p99",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "D"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(sum by (region) (increase(txe_bench_stage_latency_seconds_count{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"send\"}[$__range])), \"percentile\", \"samples\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / samples",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "E"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": [
+              {
+                "group": "joinByLabels",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "value": "percentile"
+                  }
+                }
+              },
+              {
+                "group": "organize",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "excludeByName": {
+                      "Time": true
+                    },
+                    "includeByName": {},
+                    "indexByName": {
+                      "p50": 1,
+                      "p90": 2,
+                      "p95": 3,
+                      "p99": 4,
+                      "region": 0,
+                      "samples": 5
+                    },
+                    "orderByMode": "auto",
+                    "renameByName": {}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "description": "Pooled p50/p90/p95/p99 for send per region, over the dashboard time range (histogram_quantile(rate(txe_bench_stage_latency_seconds_bucket[$__range]))). 'samples' = attempts pooled in the window (confidence context). Set range to 6h-24h. sum by (region, le) drops process_id so restarts stay continuous.",
+        "id": 12,
+        "links": [],
+        "title": "send — p50/p90/p95/p99 by region",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "samples"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "showHeader": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-13": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.50, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"submit\"}[$__range]))), \"percentile\", \"p50\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p50",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.90, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"submit\"}[$__range]))), \"percentile\", \"p90\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p90",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"submit\"}[$__range]))), \"percentile\", \"p95\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p95",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.99, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"submit\"}[$__range]))), \"percentile\", \"p99\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p99",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "D"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(sum by (region) (increase(txe_bench_stage_latency_seconds_count{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"submit\"}[$__range])), \"percentile\", \"samples\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / samples",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "E"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": [
+              {
+                "group": "joinByLabels",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "value": "percentile"
+                  }
+                }
+              },
+              {
+                "group": "organize",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "excludeByName": {
+                      "Time": true
+                    },
+                    "includeByName": {},
+                    "indexByName": {
+                      "p50": 1,
+                      "p90": 2,
+                      "p95": 3,
+                      "p99": 4,
+                      "region": 0,
+                      "samples": 5
+                    },
+                    "orderByMode": "auto",
+                    "renameByName": {}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "description": "Pooled p50/p90/p95/p99 for submit per region, over the dashboard time range (histogram_quantile(rate(txe_bench_stage_latency_seconds_bucket[$__range]))). 'samples' = attempts pooled in the window (confidence context). Set range to 6h-24h. sum by (region, le) drops process_id so restarts stay continuous.",
+        "id": 13,
+        "links": [],
+        "title": "submit — p50/p90/p95/p99 by region",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "samples"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "showHeader": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-14": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.50, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"canonical\"}[$__range]))), \"percentile\", \"p50\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p50",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.90, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"canonical\"}[$__range]))), \"percentile\", \"p90\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p90",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"canonical\"}[$__range]))), \"percentile\", \"p95\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p95",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.99, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"canonical\"}[$__range]))), \"percentile\", \"p99\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p99",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "D"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(sum by (region) (increase(txe_bench_stage_latency_seconds_count{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"canonical\"}[$__range])), \"percentile\", \"samples\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / samples",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "E"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": [
+              {
+                "group": "joinByLabels",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "value": "percentile"
+                  }
+                }
+              },
+              {
+                "group": "organize",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "excludeByName": {
+                      "Time": true
+                    },
+                    "includeByName": {},
+                    "indexByName": {
+                      "p50": 1,
+                      "p90": 2,
+                      "p95": 3,
+                      "p99": 4,
+                      "region": 0,
+                      "samples": 5
+                    },
+                    "orderByMode": "auto",
+                    "renameByName": {}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "description": "PROVIDER-API LATENCY, NOT COMPARABLE ACROSS PROVIDERS. On base-mainnet this is wallet_getCallsStatus reaching status 110 or 200. Measured live on Base: 110 does exist but fires only intermittently and trails actual Flashblock inclusion by ~0.7-1.4s (its payload carries a real blockHash one block past pendingBundle.sentAtBlock, so it denotes early BLOCK inclusion, not sub-block preconfirmation). Either way this stage lands at block-level latency (~1.7s) and does NOT measure preconfirmation. Read it as 'how long until the Wallet API will tell you' — a real user-visible number, but ~1 Base block behind actual inclusion. For cross-provider latency claims use the preconf panels instead. Pooled p50/p90/p95/p99 per region; 'samples' = attempts pooled in the window. Set range to 6h-24h.",
+        "id": 14,
+        "links": [],
+        "title": "canonical (wallet_getCallsStatus 110/200 — block-level) — p50/p90/p95/p99 by region",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "samples"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "showHeader": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-15": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"canonical\"}[6h])))",
+                      "instant": false,
+                      "legendFormat": "{{region}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Rolling p95 for canonical by region (trailing 6h pooled window at each point). NOTE: on base-mainnet this is wallet_getCallsStatus status 200 (confirmed inclusion), not preconfirmation — see the preconf panels for the neutral cross-provider comparison.",
+        "id": 15,
+        "links": [],
+        "title": "canonical p95 by region (trailing 6h)",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull",
+                  "max"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "right",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "desc"
+              }
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-16": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"submit\"}[6h])))",
+                      "instant": false,
+                      "legendFormat": "{{region}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Rolling p95 for submit by region (trailing 6h pooled window at each point). One line per region — compare regional latency and trend over time.",
+        "id": 16,
+        "links": [],
+        "title": "submit p95 by region (trailing 6h)",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull",
+                  "max"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "right",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "desc"
+              }
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-17": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.50, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"preconf\"}[$__range]))), \"percentile\", \"p50\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p50",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.90, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"preconf\"}[$__range]))), \"percentile\", \"p90\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p90",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"preconf\"}[$__range]))), \"percentile\", \"p95\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p95",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.99, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"preconf\"}[$__range]))), \"percentile\", \"p99\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p99",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "D"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(sum by (region) (increase(txe_bench_stage_latency_seconds_count{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"preconf\"}[$__range])), \"percentile\", \"samples\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / samples",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "E"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": [
+              {
+                "group": "joinByLabels",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "value": "percentile"
+                  }
+                }
+              },
+              {
+                "group": "organize",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "excludeByName": {
+                      "Time": true
+                    },
+                    "includeByName": {},
+                    "indexByName": {
+                      "p50": 1,
+                      "p90": 2,
+                      "p95": 3,
+                      "p99": 4,
+                      "region": 0,
+                      "samples": 5
+                    },
+                    "orderByMode": "auto",
+                    "renameByName": {}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "description": "NEUTRAL SIGNAL — comparable across providers. Time from acceptance until the userOp appeared in a Base Flashblock, detected by the non-contestant newFlashblockTransactions WS oracle matching UserOperationEvent by userOpHash. Measured identically for every provider, so this is the panel to use for cross-provider claims. Pooled p50/p90/p95/p99 per region over the dashboard time range; 'samples' = attempts pooled in the window. Set range to 6h-24h.",
+        "id": 17,
+        "links": [],
+        "title": "preconf (neutral Flashblock oracle) — p50/p90/p95/p99 by region",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "samples"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "showHeader": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-18": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"preconf\"}[6h])))",
+                      "instant": false,
+                      "legendFormat": "{{region}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Rolling p95 for preconf by region (trailing 6h pooled window at each point). Neutral Flashblock oracle — comparable across providers.",
+        "id": 18,
+        "links": [],
+        "title": "preconf p95 by region (trailing 6h)",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull",
+                  "max"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "right",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "desc"
+              }
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-19": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.50, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"preconf\"}[$__range]))), \"percentile\", \"p50\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p50",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.90, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"preconf\"}[$__range]))), \"percentile\", \"p90\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p90",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"preconf\"}[$__range]))), \"percentile\", \"p95\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p95",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.99, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"preconf\"}[$__range]))), \"percentile\", \"p99\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p99",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "D"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(sum by (region) (increase(txe_bench_stage_latency_seconds_count{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"preconf\"}[$__range])), \"percentile\", \"samples\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / samples",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "E"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": [
+              {
+                "group": "joinByLabels",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "value": "percentile"
+                  }
+                }
+              },
+              {
+                "group": "organize",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "excludeByName": {
+                      "Time": true
+                    },
+                    "includeByName": {},
+                    "indexByName": {
+                      "p50": 1,
+                      "p90": 2,
+                      "p95": 3,
+                      "p99": 4,
+                      "region": 0,
+                      "samples": 5
+                    },
+                    "orderByMode": "auto",
+                    "renameByName": {}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "description": "NEUTRAL SIGNAL — comparable across providers, and the honest counterpart to this row's canonical panel. Time from acceptance until the userOp appeared in a Base Flashblock, detected by the non-contestant newFlashblockTransactions WS oracle matching UserOperationEvent by userOpHash — the same oracle and same code path used for alchemy-mav2-bso. The gap between this and canonical is how much preconfirmation information wallet_getCallsStatus withholds from callers: status 110 exists but fires intermittently and lands ~0.7-1.4s after the Flashblock, so neither 110 nor 200 gives a caller flashblock-speed visibility. Pooled p50/p90/p95/p99 per region; 'samples' = attempts pooled in the window. Set range to 6h-24h.",
+        "id": 19,
+        "links": [],
+        "title": "preconf (neutral Flashblock oracle) — p50/p90/p95/p99 by region",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "samples"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "showHeader": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-20": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-wallet-sendcalls\",stage=\"preconf\"}[6h])))",
+                      "instant": false,
+                      "legendFormat": "{{region}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Rolling p95 for preconf by region (trailing 6h pooled window at each point). Neutral Flashblock oracle — comparable across providers.",
+        "id": 20,
+        "links": [],
+        "title": "preconf p95 by region (trailing 6h)",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull",
+                  "max"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "right",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "desc"
+              }
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-21": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.50, sum by (provider_id, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"preconf\"}[$__range]))), \"percentile\", \"p50\", \"provider_id\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{provider_id}} / p50",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.90, sum by (provider_id, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"preconf\"}[$__range]))), \"percentile\", \"p90\", \"provider_id\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{provider_id}} / p90",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.95, sum by (provider_id, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"preconf\"}[$__range]))), \"percentile\", \"p95\", \"provider_id\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{provider_id}} / p95",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.99, sum by (provider_id, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"preconf\"}[$__range]))), \"percentile\", \"p99\", \"provider_id\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{provider_id}} / p99",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "D"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(sum by (provider_id) (increase(txe_bench_stage_latency_seconds_count{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"preconf\"}[$__range])), \"percentile\", \"samples\", \"provider_id\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{provider_id}} / samples",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "E"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": [
+              {
+                "group": "joinByLabels",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "value": "percentile"
+                  }
+                }
+              },
+              {
+                "group": "organize",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "excludeByName": {
+                      "Time": true
+                    },
+                    "includeByName": {},
+                    "indexByName": {
+                      "p50": 1,
+                      "p90": 2,
+                      "p95": 3,
+                      "p99": 4,
+                      "provider_id": 0,
+                      "samples": 5
+                    },
+                    "orderByMode": "auto",
+                    "renameByName": {}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "description": "THE APPLES-TO-APPLES COMPARISON. Every provider's preconf is measured by the same non-contestant newFlashblockTransactions WS oracle matching UserOperationEvent by userOpHash — same oracle, same code path, same clock — so rows here are directly comparable. Use this for any cross-provider or cross-modality latency claim. Do NOT use the canonical panels for that: on base-mainnet 'canonical' means different things per provider (alchemy-mav2-bso = this same Flashblock signal relabeled; alchemy-wallet-sendcalls = wallet_getCallsStatus 110/200, both of which are block-level signals ~1.7s in, since 110 trails Flashblock inclusion by ~0.7-1.4s and fires only intermittently). Check the not-observed panel before trusting these percentiles. Set range to 6h-24h.",
+        "id": 21,
+        "links": [],
+        "title": "preconf — neutral cross-provider comparison (p50/p90/p95/p99)",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "samples"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "showHeader": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-22": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, sum by (provider_id, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"preconf\"}[6h])))",
+                      "instant": false,
+                      "legendFormat": "preconf p95 / {{provider_id}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, sum by (provider_id, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"canonical\"}[6h])))",
+                      "instant": false,
+                      "legendFormat": "canonical p95 / {{provider_id}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Rolling p95 (trailing 6h) for preconf AND canonical, per provider, on one axis. The preconf lines are the neutral comparison and should sit close together. Any gap between a provider's canonical line and its preconf line is observation overhead in that provider's own status API, not chain latency — for alchemy-wallet-sendcalls that gap is wallet_getCallsStatus waiting for a block-level signal — 110 when it fires, otherwise 200 — neither of which arrives at Flashblock speed.",
+        "id": 22,
+        "links": [],
+        "title": "preconf vs canonical p95 by provider (trailing 6h)",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byRegexp",
+                    "options": "canonical.*"
+                  },
+                  "properties": [
+                    {
+                      "id": "custom.lineStyle",
+                      "value": {
+                        "dash": [
+                          10,
+                          10
+                        ],
+                        "fill": "dash"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull",
+                  "max"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "right",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "desc"
+              }
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-23": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "(sum by (provider_id) (increase(txe_bench_stage_outcomes_total{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"preconf\",outcome!=\"ok\"}[$__range])) or (sum by (provider_id) (increase(txe_bench_stage_outcomes_total{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"preconf\"}[$__range])) * 0)) / clamp_min(sum by (provider_id) (increase(txe_bench_stage_outcomes_total{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"preconf\"}[$__range])), 1)",
+                      "instant": true,
+                      "legendFormat": "{{provider_id}}",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "VALIDITY GUARD for the preconf panels. Fraction of attempts whose userOp was NOT attributed to a Flashblock. The preconf percentiles only describe the whole population while this is ~0 — if attribution degrades (schema change, WS staleness, a modality that stops emitting UserOperationEvent), the latency numbers silently become a biased fast subset. Investigate anything above a few percent before quoting preconf figures.",
+        "id": 23,
+        "links": [],
+        "title": "preconf not-observed rate by provider",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "decimals": 3,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.01
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.05
+                    }
+                  ]
+                },
+                "unit": "percentunit"
+              },
+              "overrides": []
+            },
+            "options": {
+              "colorMode": "value",
+              "graphMode": "none",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "percentChangeColorMode": "standard",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-24": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.50, sum by (provider_id, terminal_status, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"canonical\"}[$__range]))), \"percentile\", \"p50\", \"provider_id\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{provider_id}} / {{terminal_status}} / p50",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.95, sum by (provider_id, terminal_status, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"canonical\"}[$__range]))), \"percentile\", \"p95\", \"provider_id\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{provider_id}} / {{terminal_status}} / p95",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(sum by (provider_id, terminal_status) (increase(txe_bench_stage_latency_seconds_count{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",stage=\"canonical\"}[$__range])), \"percentile\", \"attempts\", \"provider_id\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{provider_id}} / {{terminal_status}} / attempts",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": [
+              {
+                "group": "joinByLabels",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "value": "percentile"
+                  }
+                }
+              },
+              {
+                "group": "organize",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "excludeByName": {
+                      "Time": true
+                    },
+                    "includeByName": {},
+                    "indexByName": {
+                      "attempts": 4,
+                      "p50": 2,
+                      "p95": 3,
+                      "provider_id": 0,
+                      "terminal_status": 1
+                    },
+                    "orderByMode": "auto",
+                    "renameByName": {}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "description": "Which signal actually ended each canonical observation, and how slow that signal is. 'attempts' shows the split — e.g. how often alchemy-wallet-sendcalls terminates on wallet_getCallsStatus 110 versus 200. Live measurement on 2026-08-06 found 110 fires on a minority of ops and still trails real Flashblock inclusion by ~0.7-1.4s, so neither row here should be read as preconfirmation; compare against the preconf panels above for that. terminal_status is populated for the canonical stage only — every other stage reports 'none', which is why this panel filters stage=\"canonical\". Values: 110/200 (wallet_getCallsStatus), success/failure (eth_getUserOperationReceipt), none (Flashblock-sourced, no status code). Set range to 6h-24h.",
+        "id": 24,
+        "links": [],
+        "title": "canonical by terminal_status — which signal finished, and how slow",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "attempts"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "showHeader": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-2": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "sum(increase(txe_bench_attempts_total{environment=~\"$environment\",region=~\"$region\",network=~\"$network\"}[$__range]))",
+                      "instant": true,
+                      "legendFormat": "",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "",
+        "id": 2,
+        "links": [],
+        "title": "Attempts (in range)",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "decimals": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "short"
+              },
+              "overrides": []
+            },
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "percentChangeColorMode": "standard",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-3": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "min(1 - (sum by (provider_id, region) (increase(txe_bench_failures_total{environment=~\"$environment\",region=~\"$region\",network=~\"$network\"}[$__range])) / clamp_min(sum by (provider_id, region) (increase(txe_bench_attempts_total{environment=~\"$environment\",region=~\"$region\",network=~\"$network\"}[$__range])), 1)))",
+                      "instant": true,
+                      "legendFormat": "",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "",
+        "id": 3,
+        "links": [],
+        "title": "Min success rate (in range)",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "decimals": 3,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.95
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.99
+                    }
+                  ]
+                },
+                "unit": "percentunit"
+              },
+              "overrides": []
+            },
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "percentChangeColorMode": "standard",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-4": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "max(time() - txe_bench_last_run_timestamp_unix{environment=~\"$environment\",region=~\"$region\",network=~\"$network\"})",
+                      "instant": true,
+                      "legendFormat": "",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "",
+        "id": 4,
+        "links": [],
+        "title": "Oldest run age",
+        "vizConfig": {
+          "group": "stat",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "decimals": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "orange",
+                      "value": 3900
+                    },
+                    {
+                      "color": "red",
+                      "value": 7200
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "colorMode": "value",
+              "graphMode": "area",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "percentChangeColorMode": "standard",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-5": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "1 - (sum by (provider_id, region) (increase(txe_bench_failures_total{environment=~\"$environment\",region=~\"$region\",network=~\"$network\"}[6h])) / clamp_min(sum by (provider_id, region) (increase(txe_bench_attempts_total{environment=~\"$environment\",region=~\"$region\",network=~\"$network\"}[6h])), 1))",
+                      "instant": false,
+                      "legendFormat": "{{provider_id}} : {{region}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Windowed success rate (1 - failures/attempts) over a trailing window, per provider and region.",
+        "id": 5,
+        "links": [],
+        "title": "Success rate by provider : region",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "max": 1,
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "percentunit"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull",
+                  "max"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "right",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "desc"
+              }
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-6": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "sum by (provider_id, region) (increase(txe_bench_attempts_total{environment=~\"$environment\",region=~\"$region\",network=~\"$network\"}[6h]))",
+                      "instant": false,
+                      "legendFormat": "attempts / {{provider_id}} : {{region}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "sum by (provider_id, region) (increase(txe_bench_failures_total{environment=~\"$environment\",region=~\"$region\",network=~\"$network\"}[6h]))",
+                      "instant": false,
+                      "legendFormat": "failures / {{provider_id}} : {{region}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Per-run attempt and failure counts over time (increase of the cumulative counters).",
+        "id": 6,
+        "links": [],
+        "title": "Attempts & failures per run",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "short"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull",
+                  "max"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "right",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "desc"
+              }
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-7": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.50, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"submit\"}[$__range]))), \"percentile\", \"p50\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p50",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.90, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"submit\"}[$__range]))), \"percentile\", \"p90\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p90",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"submit\"}[$__range]))), \"percentile\", \"p95\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p95",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.99, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"submit\"}[$__range]))), \"percentile\", \"p99\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p99",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "D"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(sum by (region) (increase(txe_bench_stage_latency_seconds_count{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"submit\"}[$__range])), \"percentile\", \"samples\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / samples",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "E"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": [
+              {
+                "group": "joinByLabels",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "value": "percentile"
+                  }
+                }
+              },
+              {
+                "group": "organize",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "excludeByName": {
+                      "Time": true
+                    },
+                    "includeByName": {},
+                    "indexByName": {
+                      "p50": 1,
+                      "p90": 2,
+                      "p95": 3,
+                      "p99": 4,
+                      "region": 0,
+                      "samples": 5
+                    },
+                    "orderByMode": "auto",
+                    "renameByName": {}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "description": "Pooled p50/p90/p95/p99 for submit per region, over the dashboard time range (histogram_quantile(rate(txe_bench_stage_latency_seconds_bucket[$__range]))). 'samples' = attempts pooled in the window (confidence context). Set range to 6h-24h. sum by (region, le) drops process_id so restarts stay continuous.",
+        "id": 7,
+        "links": [],
+        "title": "submit — p50/p90/p95/p99 by region",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "samples"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "showHeader": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-8": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.50, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"canonical\"}[$__range]))), \"percentile\", \"p50\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p50",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.90, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"canonical\"}[$__range]))), \"percentile\", \"p90\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p90",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"canonical\"}[$__range]))), \"percentile\", \"p95\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p95",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "C"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(histogram_quantile(0.99, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"canonical\"}[$__range]))), \"percentile\", \"p99\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / p99",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "D"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "label_replace(sum by (region) (increase(txe_bench_stage_latency_seconds_count{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"canonical\"}[$__range])), \"percentile\", \"samples\", \"region\", \".*\")",
+                      "instant": true,
+                      "legendFormat": "{{region}} / samples",
+                      "range": false
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "E"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": [
+              {
+                "group": "joinByLabels",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "value": "percentile"
+                  }
+                }
+              },
+              {
+                "group": "organize",
+                "kind": "Transformation",
+                "spec": {
+                  "options": {
+                    "excludeByName": {
+                      "Time": true
+                    },
+                    "includeByName": {},
+                    "indexByName": {
+                      "p50": 1,
+                      "p90": 2,
+                      "p95": 3,
+                      "p99": 4,
+                      "region": 0,
+                      "samples": 5
+                    },
+                    "orderByMode": "auto",
+                    "renameByName": {}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "description": "NOT AN INDEPENDENT SIGNAL ON base-mainnet. For this provider the monitor sets canonical from the first matching Flashblock, so these values are the preconf panel's values relabeled (they match digit-for-digit), with confirmed eth_getUserOperationReceipt inclusion used only as a fallback when no Flashblock is observed. Do not read it as block inclusion, and do not compare it against alchemy-wallet-sendcalls canonical, which measures confirmed inclusion. Pooled p50/p90/p95/p99 per region; 'samples' = attempts pooled in the window. Set range to 6h-24h.",
+        "id": 8,
+        "links": [],
+        "title": "canonical (Flashblock-sourced, = preconf) — p50/p90/p95/p99 by region",
+        "vizConfig": {
+          "group": "table",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "custom": {
+                  "align": "auto",
+                  "cellOptions": {
+                    "type": "auto"
+                  },
+                  "footer": {
+                    "reducers": []
+                  },
+                  "inspect": false
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": [
+                {
+                  "matcher": {
+                    "id": "byName",
+                    "options": "samples"
+                  },
+                  "properties": [
+                    {
+                      "id": "unit",
+                      "value": "short"
+                    }
+                  ]
+                }
+              ]
+            },
+            "options": {
+              "cellHeight": "sm",
+              "showHeader": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-9": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "$datasource"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, sum by (region, le) (rate(txe_bench_stage_latency_seconds_bucket{environment=~\"$environment\",region=~\"$region\",network=~\"$network\",provider_id=\"alchemy-mav2-bso\",stage=\"canonical\"}[6h])))",
+                      "instant": false,
+                      "legendFormat": "{{region}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Rolling p95 for canonical by region (trailing 6h pooled window at each point). NOTE: on base-mainnet this is the Flashblock signal relabeled, not block inclusion — it tracks the preconf panel.",
+        "id": 9,
+        "links": [],
+        "title": "canonical p95 by region (trailing 6h)",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull",
+                  "max"
+                ],
+                "displayMode": "table",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "right",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "multi",
+                "sort": "desc"
+              }
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    }
+  },
+  "layout": {
+    "kind": "RowsLayout",
+    "spec": {
+      "rows": [
+        {
+          "kind": "RowsLayoutRow",
+          "spec": {
+            "collapse": false,
+            "layout": {
+              "kind": "GridLayout",
+              "spec": {
+                "items": [
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-1"
+                      },
+                      "height": 4,
+                      "width": 6,
+                      "x": 0,
+                      "y": 0
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-2"
+                      },
+                      "height": 4,
+                      "width": 6,
+                      "x": 6,
+                      "y": 0
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-3"
+                      },
+                      "height": 4,
+                      "width": 6,
+                      "x": 12,
+                      "y": 0
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-4"
+                      },
+                      "height": 4,
+                      "width": 6,
+                      "x": 18,
+                      "y": 0
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-5"
+                      },
+                      "height": 8,
+                      "width": 12,
+                      "x": 0,
+                      "y": 4
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-6"
+                      },
+                      "height": 8,
+                      "width": 12,
+                      "x": 12,
+                      "y": 4
+                    }
+                  }
+                ]
+              }
+            },
+            "title": "Overview"
+          }
+        },
+        {
+          "kind": "RowsLayoutRow",
+          "spec": {
+            "collapse": false,
+            "layout": {
+              "kind": "GridLayout",
+              "spec": {
+                "items": [
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-21"
+                      },
+                      "height": 8,
+                      "width": 16,
+                      "x": 0,
+                      "y": 0
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-23"
+                      },
+                      "height": 8,
+                      "width": 8,
+                      "x": 16,
+                      "y": 0
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-22"
+                      },
+                      "height": 9,
+                      "width": 24,
+                      "x": 0,
+                      "y": 8
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-24"
+                      },
+                      "height": 8,
+                      "width": 24,
+                      "x": 0,
+                      "y": 17
+                    }
+                  }
+                ]
+              }
+            },
+            "title": "Neutral preconf comparison · use THIS for cross-provider claims"
+          }
+        },
+        {
+          "kind": "RowsLayoutRow",
+          "spec": {
+            "collapse": false,
+            "layout": {
+              "kind": "GridLayout",
+              "spec": {
+                "items": [
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-7"
+                      },
+                      "height": 8,
+                      "width": 12,
+                      "x": 0,
+                      "y": 0
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-17"
+                      },
+                      "height": 8,
+                      "width": 12,
+                      "x": 12,
+                      "y": 0
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-8"
+                      },
+                      "height": 8,
+                      "width": 12,
+                      "x": 0,
+                      "y": 8
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-18"
+                      },
+                      "height": 9,
+                      "width": 12,
+                      "x": 12,
+                      "y": 8
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-10"
+                      },
+                      "height": 9,
+                      "width": 12,
+                      "x": 0,
+                      "y": 17
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-9"
+                      },
+                      "height": 9,
+                      "width": 12,
+                      "x": 12,
+                      "y": 17
+                    }
+                  }
+                ]
+              }
+            },
+            "title": "BSO · alchemy-mav2-bso · submit → preconf → canonical"
+          }
+        },
+        {
+          "kind": "RowsLayoutRow",
+          "spec": {
+            "collapse": false,
+            "layout": {
+              "kind": "GridLayout",
+              "spec": {
+                "items": [
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-11"
+                      },
+                      "height": 8,
+                      "width": 12,
+                      "x": 0,
+                      "y": 0
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-12"
+                      },
+                      "height": 8,
+                      "width": 12,
+                      "x": 12,
+                      "y": 0
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-13"
+                      },
+                      "height": 8,
+                      "width": 12,
+                      "x": 0,
+                      "y": 8
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-19"
+                      },
+                      "height": 8,
+                      "width": 12,
+                      "x": 12,
+                      "y": 8
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-14"
+                      },
+                      "height": 8,
+                      "width": 12,
+                      "x": 0,
+                      "y": 16
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-20"
+                      },
+                      "height": 9,
+                      "width": 12,
+                      "x": 12,
+                      "y": 16
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-16"
+                      },
+                      "height": 9,
+                      "width": 12,
+                      "x": 0,
+                      "y": 25
+                    }
+                  },
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-15"
+                      },
+                      "height": 9,
+                      "width": 12,
+                      "x": 12,
+                      "y": 25
+                    }
+                  }
+                ]
+              }
+            },
+            "title": "Wallet SendCalls · alchemy-wallet-sendcalls · prepare → send → submit → preconf → canonical"
+          }
+        }
+      ]
+    }
+  },
+  "links": [],
+  "liveNow": false,
+  "preload": false,
+  "tags": [],
+  "timeSettings": {
+    "autoRefresh": "5m",
+    "autoRefreshIntervals": [
+      "1m",
+      "5m",
+      "15m",
+      "1h"
+    ],
+    "fiscalYearStartMonth": 0,
+    "from": "now-1h",
+    "hideTimepicker": false,
+    "timezone": "browser",
+    "to": "now"
+  },
+  "title": "TXE Write Bench Monitor — Latency (pooled, per-provider)",
+  "variables": [
+    {
+      "kind": "DatasourceVariable",
+      "spec": {
+        "allowCustomValue": true,
+        "current": {
+          "text": "thanos-obsv2",
+          "value": "global-thanos-obsv2"
+        },
+        "hide": "dontHide",
+        "includeAll": false,
+        "label": "Datasource",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "pluginId": "prometheus",
+        "refresh": "onDashboardLoad",
+        "regex": "",
+        "skipUrlSync": false
+      }
+    },
+    {
+      "kind": "QueryVariable",
+      "spec": {
+        "allValue": ".*",
+        "allowCustomValue": true,
+        "current": {
+          "text": [
+            "prod"
+          ],
+          "value": [
+            "prod"
+          ]
+        },
+        "definition": "label_values(txe_bench_attempts_total, environment)",
+        "hide": "dontHide",
+        "includeAll": true,
+        "label": "Environment",
+        "multi": true,
+        "name": "environment",
+        "options": [],
+        "query": {
+          "datasource": {
+            "name": "$datasource"
+          },
+          "group": "prometheus",
+          "kind": "DataQuery",
+          "spec": {
+            "query": "label_values(txe_bench_attempts_total, environment)",
+            "refId": "VariableQuery"
+          },
+          "version": "v0"
+        },
+        "refresh": "onDashboardLoad",
+        "regex": "",
+        "regexApplyTo": "value",
+        "skipUrlSync": false,
+        "sort": "alphabeticalAsc"
+      }
+    },
+    {
+      "kind": "QueryVariable",
+      "spec": {
+        "allValue": ".*",
+        "allowCustomValue": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "definition": "label_values(txe_bench_attempts_total{environment=~\"$environment\"}, region)",
+        "hide": "dontHide",
+        "includeAll": true,
+        "label": "Region",
+        "multi": true,
+        "name": "region",
+        "options": [],
+        "query": {
+          "datasource": {
+            "name": "$datasource"
+          },
+          "group": "prometheus",
+          "kind": "DataQuery",
+          "spec": {
+            "query": "label_values(txe_bench_attempts_total{environment=~\"$environment\"}, region)",
+            "refId": "VariableQuery"
+          },
+          "version": "v0"
+        },
+        "refresh": "onDashboardLoad",
+        "regex": "",
+        "regexApplyTo": "value",
+        "skipUrlSync": false,
+        "sort": "alphabeticalAsc"
+      }
+    },
+    {
+      "kind": "QueryVariable",
+      "spec": {
+        "allValue": ".*",
+        "allowCustomValue": true,
+        "current": {
+          "text": [
+            "base-mainnet"
+          ],
+          "value": [
+            "base-mainnet"
+          ]
+        },
+        "definition": "label_values(txe_bench_attempts_total{environment=~\"$environment\",region=~\"$region\"}, network)",
+        "hide": "dontHide",
+        "includeAll": true,
+        "label": "Network",
+        "multi": true,
+        "name": "network",
+        "options": [],
+        "query": {
+          "datasource": {
+            "name": "$datasource"
+          },
+          "group": "prometheus",
+          "kind": "DataQuery",
+          "spec": {
+            "query": "label_values(txe_bench_attempts_total{environment=~\"$environment\",region=~\"$region\"}, network)",
+            "refId": "VariableQuery"
+          },
+          "version": "v0"
+        },
+        "refresh": "onDashboardLoad",
+        "regex": "",
+        "regexApplyTo": "value",
+        "skipUrlSync": false,
+        "sort": "alphabeticalAsc"
+      }
+    }
+  ]
+}
