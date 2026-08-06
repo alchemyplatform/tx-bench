@@ -5,8 +5,13 @@ export const MEASUREMENT_EPOCH = 'base-flashblocks-v3'
 const SUMMARY_LABELS = [
   'protocol_class', 'provider_id', 'observer_api', 'measurement_epoch', 'network', 'region',
 ] as const
-const LATENCY_LABELS = [...SUMMARY_LABELS, 'stage'] as const
-const OUTCOME_LABELS = [...SUMMARY_LABELS, 'stage', 'outcome'] as const
+const LATENCY_LABELS = [...SUMMARY_LABELS, 'stage', 'terminal_status'] as const
+const OUTCOME_LABELS = [...SUMMARY_LABELS, 'stage', 'outcome', 'terminal_status'] as const
+
+// Sentinel for stages that have no terminal status to report. Only the canonical
+// stage carries a real value (see terminalStatusForStage in loop.ts), so every
+// other stage collapses onto this single value instead of multiplying series.
+export const TERMINAL_STATUS_NONE = 'none'
 
 export type SummaryLabels = {
   protocol_class: string
@@ -16,7 +21,7 @@ export type SummaryLabels = {
   network: string
   region: string
 }
-export type LatencyLabels = SummaryLabels & { stage: string }
+export type LatencyLabels = SummaryLabels & { stage: string; terminal_status: string }
 
 // Per-attempt latency buckets in seconds. Dense boundaries around the canonical
 // SLO range (1–8s) keep p95 and CDF estimates useful while the full 5ms–120s
@@ -31,6 +36,8 @@ export const LATENCY_BUCKETS_SECONDS = [
 export type MonitorMetrics = {
   // Per-attempt latency histogram. Pool across runs with:
   //   histogram_quantile(0.95, sum by (le) (rate(..._bucket[$window])))
+  // Carries terminal_status so the canonical stage can be split by which signal
+  // ended the observation (e.g. wallet_getCallsStatus 110 vs 200).
   stageLatency: Histogram<string>
   // Cumulative benchmark attempts (successful + failed).
   attemptsTotal: Counter<string>

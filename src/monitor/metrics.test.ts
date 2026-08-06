@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { Registry } from 'prom-client'
-import { buildMetrics, LATENCY_BUCKETS_SECONDS } from './metrics'
+import { buildMetrics, LATENCY_BUCKETS_SECONDS, MEASUREMENT_EPOCH, TERMINAL_STATUS_NONE } from './metrics'
 
 // A Histogram registers three series in the text output: `_bucket`, `_sum`,
 // `_count`. `getMetricsAsArray()` collapses them into one entry named after the
@@ -28,7 +28,7 @@ describe('buildMetrics', () => {
     expect(metric).toBeDefined()
     const labelNames = (metric as any).labelNames as string[]
     expect(labelNames.sort()).toEqual(
-      ['protocol_class', 'provider_id', 'stage', 'observer_api', 'measurement_epoch', 'network', 'region'].sort(),
+      ['protocol_class', 'provider_id', 'stage', 'terminal_status', 'observer_api', 'measurement_epoch', 'network', 'region'].sort(),
     )
     // `upperBounds` holds the configured bucket edges; prom-client appends
     // `+Inf` only at serialization time, so it is not present here.
@@ -74,8 +74,55 @@ describe('buildMetrics', () => {
 
     const outcome = registry.getSingleMetric('txe_bench_stage_outcomes_total')
     expect((outcome as any).labelNames.sort()).toEqual(
-      [...summaryLabels, 'stage', 'outcome'].sort(),
+      [...summaryLabels, 'stage', 'outcome', 'terminal_status'].sort(),
     )
+  })
+
+  it('splits canonical latency series by terminal_status', async () => {
+    const registry = new Registry()
+    const { stageLatency } = buildMetrics(registry)
+    const base = {
+      protocol_class: 'wallet-sendcalls',
+      provider_id: 'alchemy-wallet-sendcalls',
+      stage: 'canonical',
+      observer_api: 'wallet_getCallsStatus',
+      measurement_epoch: MEASUREMENT_EPOCH,
+      network: 'base-mainnet',
+      region: 'us-east-1',
+    }
+    stageLatency.observe({ ...base, terminal_status: '110' }, 1.24)
+    stageLatency.observe({ ...base, terminal_status: '200' }, 1.65)
+
+    const agg = await stageLatency.get()
+    const counts = agg.values.filter(v => v.metricName === 'txe_bench_stage_latency_seconds_count')
+    expect(counts).toHaveLength(2)
+    expect(counts.map(c => c.labels.terminal_status).sort()).toEqual(['110', '200'])
+    // Each status keeps its own distribution rather than pooling into one series.
+    for (const c of counts) expect(c.value).toBe(1)
+  })
+
+  it('non-canonical stages collapse onto the sentinel so they do not multiply series', async () => {
+    const registry = new Registry()
+    const { stageLatency } = buildMetrics(registry)
+    const base = {
+      protocol_class: 'wallet-sendcalls',
+      provider_id: 'alchemy-wallet-sendcalls',
+      observer_api: 'wallet_getCallsStatus',
+      measurement_epoch: MEASUREMENT_EPOCH,
+      network: 'base-mainnet',
+      region: 'us-east-1',
+      terminal_status: TERMINAL_STATUS_NONE,
+    }
+    for (const stage of ['prepare', 'send', 'submit', 'preconf']) {
+      stageLatency.observe({ ...base, stage }, 0.2)
+      stageLatency.observe({ ...base, stage }, 0.3)
+    }
+
+    const agg = await stageLatency.get()
+    const counts = agg.values.filter(v => v.metricName === 'txe_bench_stage_latency_seconds_count')
+    // One series per stage, not one per stage x status.
+    expect(counts).toHaveLength(4)
+    expect(new Set(counts.map(c => c.labels.terminal_status))).toEqual(new Set([TERMINAL_STATUS_NONE]))
   })
 
   it('observing the histogram produces _count/_sum/_bucket text lines', async () => {

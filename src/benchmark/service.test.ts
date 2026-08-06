@@ -268,7 +268,7 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
       { getBlockNumber: fallbackGetBlock, watch: fallbackWatch, close() {} },
       { ready: flashblockReady, watch: flashblockWatch, close() {} },
       undefined,
-      { canonicalSource: 'preconfirmation' },
+      { canonicalSource: 'earliest-signal' },
     )
 
     expect(ownedWatch).toHaveBeenCalledTimes(flashblockOutcomes.length)
@@ -346,7 +346,7 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
         close() {},
       },
       undefined,
-      { canonicalSource: 'preconfirmation' },
+      { canonicalSource: 'earliest-signal' },
     )
 
     expect(sendSponsored).toHaveBeenCalledTimes(1)
@@ -361,7 +361,7 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
     const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
     const callId = ('0x' + 'ab'.repeat(32)) as `0x${string}`
     const confirmedWatch = mock(async () => { throw new Error('confirmed observer must not run') })
-    const preconfirmedWatch = mock(async () => ({
+    const earlyInclusionWatch = mock(async () => ({
       status: 'ok' as const,
       tMs: 700,
       observation: {
@@ -387,9 +387,9 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
             api: 'wallet_getCallsStatus' as const,
             watch: confirmedWatch,
           },
-          preconfirmationObserver: {
+          earlyInclusionObserver: {
             api: 'wallet_getCallsStatus' as const,
-            watch: preconfirmedWatch,
+            watch: earlyInclusionWatch,
           },
           async sendSponsored() {
             return {
@@ -411,12 +411,12 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
       { async getBlockNumber() { return 1n }, async watch() { throw new Error('fallback must not run') }, close() {} },
       { ready: flashblockReady, watch: flashblockWatch, close() {} },
       undefined,
-      { canonicalSource: 'preconfirmation' },
+      { canonicalSource: 'earliest-signal' },
     )
 
     expect(confirmedWatch).not.toHaveBeenCalled()
     expect(flashblockReady).not.toHaveBeenCalled()
-    expect(preconfirmedWatch).toHaveBeenCalledWith(callId, 5_000)
+    expect(earlyInclusionWatch).toHaveBeenCalledWith(callId, 5_000)
     expect(flashblockWatch).toHaveBeenCalledWith(userOpHash, 5_000)
     expect(result.records[0].stages.preconf).toEqual({ status: 'ok', ms: 180 })
     expect(result.records[0].stages.canonical).toEqual({ status: 'ok', ms: 200 })

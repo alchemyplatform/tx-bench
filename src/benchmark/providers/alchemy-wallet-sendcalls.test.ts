@@ -68,7 +68,7 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
   const callId = ('0x' + '12'.repeat(32)) as `0x${string}`
   const txHash = ('0x' + '34'.repeat(32)) as `0x${string}`
 
-  it('keeps polling the exact accepted call ID through preconfirmed 110 until confirmed 200', async () => {
+  it('keeps polling the exact accepted call ID through block-included 110 until confirmed 200', async () => {
     const calls: Array<{ method: string; params: readonly unknown[] }> = []
     const responses = [
       { status: 100 },
@@ -118,7 +118,7 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
     })
     const client = await adapter.buildAccountClient(makeConfig())
 
-    const result = await client.preconfirmationObserver!.watch(callId, 10_000)
+    const result = await client.earlyInclusionObserver!.watch(callId, 10_000)
 
     expect(calls).toHaveLength(2)
     expect(calls.every(call => call.method === 'wallet_getCallsStatus')).toBe(true)
