@@ -61,14 +61,30 @@ One path, three numbers, no stage that means two different things.
 
 ## Implementation Units
 
-### Unit 0 — Gate: confirm a BSO policy works through the Wallet API path
+### Unit 0 — Gate: confirm a BSO policy works through the Wallet API path — ✅ PASSED 2026-08-06
 
-**This gates every other unit.** The two adapters pass policies by different mechanisms:
+**This gated every other unit.** The two adapters sponsor by different mechanisms:
 
-- Wallet: `paymaster: { policyId }` on the SDK client plus per-call `capabilities` (`src/benchmark/providers/alchemy-wallet-sendcalls.ts:220,250,265`).
-- BSO: an `x-alchemy-policy-id` HTTP header on the bundler transport (`src/benchmark/providers/alchemy-mav2-bso.ts:170`).
+- Wallet: `paymaster: { policyId }` on the SDK client plus per-call `capabilities` (`src/benchmark/providers/alchemy-wallet-sendcalls.ts:220,250,265`). A paymaster *contract* pays.
+- BSO: an `x-alchemy-policy-id` HTTP header on the bundler transport (`src/benchmark/providers/alchemy-mav2-bso.ts:170`) **and all three gas fields zeroed** (`:277-280`), which signals the *bundler* to cover gas.
 
-The working assumption (from Pavel) is that supplying the BSO policy ID as the Wallet paymaster policy is sufficient. Verify with a one-off script: single sponsored send, assert success, print the resolved paymaster fields. If it instead requires the header, Unit 1 changes shape — and we learn that before removing the 4337 row.
+Three outcomes were possible: (a) it errors, (b) it works as real BSO, (c) it appears to work but quietly applies ordinary paymaster sponsorship, i.e. we ship a benchmark labelled BSO that is not BSO. Outcome (c) was the risk worth gating on.
+
+**Result: (b).** `scripts/wallet-bso-policy-probe.ts` sent one op under each policy on Base mainnet and diffed the prepared user operation. Both mined (status 200). The BSO op is a genuine bundler-sponsored operation:
+
+| field | regular policy | BSO policy |
+|---|---|---|
+| `paymaster` | `0x2cc0c798…` | absent |
+| `paymasterData` | 156 chars | absent |
+| `paymasterVerificationGasLimit` | 30013 | 0 |
+| `maxFeePerGas` | 10825000 | **0** |
+| `maxPriorityFeePerGas` | 1500000 | **0** |
+| `preVerificationGas` | 47865 | **0** |
+| `verificationGasLimit` | 33764 | 71401 |
+
+No paymaster contract and all three gas fields zeroed is exactly the BSO signature documented in the 4337 adapter, so the Wallet API does recognise a BSO policy and route accordingly. **Unit 1 can proceed with a `cfg.policyId` → `cfg.bsoPolicyId` swap; no header plumbing is needed.**
+
+Incidental notes: the prepared object carries a `feePayment` key alongside `type/data/chainId/signatureRequest/details`; it flows through `signPreparedCalls`/`sendPreparedCalls` untouched, so no handling is required. Mined latency was 1981ms (BSO) vs 2314ms (regular), but n=1 per policy — not a benchmark result and not to be quoted.
 
 ### Unit 1 — Wallet adapter uses the BSO policy
 
