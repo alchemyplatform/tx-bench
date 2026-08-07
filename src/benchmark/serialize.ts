@@ -20,6 +20,7 @@ export function serializeError(err: unknown): SerializedError {
 const REDACTED_OWNER_KEY = '[REDACTED_OWNER_PRIVATE_KEY]'
 const REDACTED_ALCHEMY_API_KEY = '[REDACTED_ALCHEMY_API_KEY]'
 const REDACTED_ALCHEMY_URL = '[REDACTED_ALCHEMY_URL]'
+const REDACTED_POLICY_ID = '[REDACTED_POLICY_ID]'
 
 /**
  * Remove occurrences of the configured owner private key from a string.
@@ -63,6 +64,8 @@ export function serializeErrorRedacted(
   err: unknown,
   ownerPrivateKey?: `0x${string}`,
   alchemyApiKeys: readonly string[] = [],
+  // Sponsorship failures echo the whole request body back, policy ID included.
+  policyIds: readonly string[] = [],
 ): SerializedError {
   const serialized = serializeError(err)
   const redact = (text: string): string => {
@@ -75,6 +78,10 @@ export function serializeErrorRedacted(
       const keyedUrl = new RegExp(`https?://[^\\s\"'<>]*${escapeRegExp(apiKey)}[^\\s\"'<>]*`, 'gi')
       result = result.replace(keyedUrl, REDACTED_ALCHEMY_URL)
       result = result.replace(new RegExp(escapeRegExp(apiKey), 'gi'), REDACTED_ALCHEMY_API_KEY)
+    }
+    for (const policyId of policyIds) {
+      if (policyId.length < 8) continue
+      result = result.replace(new RegExp(escapeRegExp(policyId), 'gi'), REDACTED_POLICY_ID)
     }
     return result
   }

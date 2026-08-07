@@ -231,7 +231,12 @@ function terminalStatusForStage(
 
 function redactLogText(value: string | undefined, credentials: MonitoringCredentials): string | undefined {
   if (value == null) return undefined
-  return serializeErrorRedacted(value, credentials.OWNER_PRIVATE_KEY, [credentials.ALCHEMY_API_KEY]).message
+  return serializeErrorRedacted(
+    value,
+    credentials.OWNER_PRIVATE_KEY,
+    [credentials.ALCHEMY_API_KEY],
+    [credentials.ALCHEMY_POLICY_ID, credentials.ALCHEMY_BSO_POLICY_ID],
+  ).message
 }
 
 function logRunResults(

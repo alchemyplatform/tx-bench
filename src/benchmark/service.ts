@@ -35,10 +35,12 @@ export async function runBenchmarkGrid(
   flashblockOracle: FlashblockOracle,
   onProgress?: (event: ProgressEvent) => void,
 ): Promise<ProviderRunResult[]> {
+  const alchemyCfg = config.providers.alchemy
   const serializeBenchmarkError = (error: unknown): string => serializeErrorRedacted(
     error,
     config.ownerPrivateKey,
-    config.providers.alchemy ? [config.providers.alchemy.apiKey] : [],
+    alchemyCfg ? [alchemyCfg.apiKey] : [],
+    alchemyCfg ? [alchemyCfg.policyId, alchemyCfg.bsoPolicyId ?? ''] : [],
   ).message
 
   // Build account clients for all providers upfront (validates config once)
