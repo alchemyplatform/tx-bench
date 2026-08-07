@@ -33,7 +33,7 @@ export function renderTable(output: RunOutput): string {
 
   lines.push(`tx-bench ${env.toolVersion} · ${new Date(env.generatedAt).toUTCString()}`)
   if (!preconfAvailable) {
-    lines.push('⚠  Canonical-only mode — NEUTRAL_FLASHBLOCK_WS_URL not configured or unreachable.')
+    lines.push('⚠  No preconfirmation timing — NEUTRAL_FLASHBLOCK_WS_URL not configured or unreachable.')
     lines.push('   Preconfirmation timing is unavailable. This is a weaker rebuttal of a preconf-timed claim.')
   }
   lines.push('')
@@ -48,7 +48,7 @@ export function renderTable(output: RunOutput): string {
     col('Provider', 28) +
     col('Submit  (med/p95)', 22) +
     col('Flashblock (med/p95)', 24) +
-    col('Canonical (med/p95)', 22)
+    col('Time to mine (med/p95)', 22)
   )
   lines.push(hr(96))
 
@@ -59,7 +59,7 @@ export function renderTable(output: RunOutput): string {
       col(row.label + failNote, 28) +
       col(fmtStage(metrics.stages.submit), 22) +
       col(preconfCol, 24) +
-      col(fmtStage(metrics.stages.canonical), 22)
+      col(fmtStage(metrics.stages.ttm), 22)
     )
   }
 
@@ -69,7 +69,7 @@ export function renderTable(output: RunOutput): string {
     lines.push('  Flashblock: accepted → matching UserOperationEvent in newFlashblockTransactions (executed/preconfirmed; not yet an L2 block).')
     lines.push('  Flashblock timing depends on runner–node peering; cross-provider equality is the robust claim.')
   }
-  lines.push('  Canonical: accepted → confirmed L2 inclusion with block number + tx hash (MAv2 BSO: eth_getUserOperationReceipt; not L1 finality).')
+  lines.push('  Time to mine (ttm): accepted → confirmed L2 inclusion with block number + tx hash (MAv2 BSO: eth_getUserOperationReceipt; not L1 finality).')
   lines.push('  Account types differ across providers (Light Account vs Safe vs Kernel) — not equivalent weight.')
 
   // ── Intent-relay exhibit ─────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ export function renderTable(output: RunOutput): string {
     lines.push(
       col('Provider', 28) +
       col('Submit  (med/p95)', 22) +
-      col('Canonical (med/p95)', 22)
+      col('Time to mine (med/p95)', 22)
     )
     lines.push(hr(72))
 
@@ -91,7 +91,7 @@ export function renderTable(output: RunOutput): string {
       lines.push(
         col(row.label + failNote, 28) +
         col(fmtStage(metrics.stages.submit), 22) +
-        col(fmtStage(metrics.stages.canonical), 22)
+        col(fmtStage(metrics.stages.ttm), 22)
       )
     }
   }
@@ -101,7 +101,7 @@ export function renderTable(output: RunOutput): string {
     lines.push('')
     lines.push('── Wallet SendCalls Exhibit (EIP-7702, different protocol class — not comparable to above) ' + hr(0))
     lines.push('   Uses wallet_sendCalls (EIP-5792) with EIP-7702 delegation, not ERC-4337.')
-    lines.push('   Submit = time to call ID; Canonical = time from call ID to tx mined.')
+    lines.push('   Submit = time to call ID; Time to mine = time from call ID to tx mined.')
     lines.push('')
 
     // Check if any wallet result has prepare/send decomposition
@@ -112,7 +112,7 @@ export function renderTable(output: RunOutput): string {
         col('Provider', 28) +
         col('Prepare (med/p95)', 22) +
         col('Send  (med/p95)', 22) +
-        col('Canonical (med/p95)', 22)
+        col('Time to mine (med/p95)', 22)
       )
       lines.push(hr(94))
 
@@ -122,14 +122,14 @@ export function renderTable(output: RunOutput): string {
           col(row.label + failNote, 28) +
           col(fmtStage(metrics.stages.prepare), 22) +
           col(fmtStage(metrics.stages.send), 22) +
-          col(fmtStage(metrics.stages.canonical), 22)
+          col(fmtStage(metrics.stages.ttm), 22)
         )
       }
     } else {
       lines.push(
         col('Provider', 28) +
         col('Submit  (med/p95)', 22) +
-        col('Canonical (med/p95)', 22)
+        col('Time to mine (med/p95)', 22)
       )
       lines.push(hr(72))
 
@@ -138,7 +138,7 @@ export function renderTable(output: RunOutput): string {
         lines.push(
           col(row.label + failNote, 28) +
           col(fmtStage(metrics.stages.submit), 22) +
-          col(fmtStage(metrics.stages.canonical), 22)
+          col(fmtStage(metrics.stages.ttm), 22)
         )
       }
     }

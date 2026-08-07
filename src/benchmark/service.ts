@@ -117,9 +117,9 @@ export async function runBenchmarkGrid(
           const sponsored = await client.sendSponsored()
           const acceptedAtMs = sponsored.acceptedAtMs ?? performance.now()
 
-          // Neither canonical nor preconfirmation observation is allowed to
+          // Neither the ttm nor the preconfirmation observation is allowed to
           // rewrite an already-accepted submission as submit-failed.
-          let canonical: CanonicalResult
+          let ttm: CanonicalResult
           let firstStatus: CanonicalResult | undefined
           let preconf: FlashblockResult
 
@@ -137,17 +137,17 @@ export async function runBenchmarkGrid(
           })
 
           // Status stages come from ONE poll stream, not two. firstStatus and
-          // canonical describe the same response whenever the provider emits no
+          // ttm describe the same response whenever the provider emits no
           // early terminal signal, so polling twice would make them disagree
           // about it by up to one poll interval.
-          // Modalities without a staged status API report canonical only.
-          type ObservedStages = { firstStatus?: CanonicalResult; canonical: CanonicalResult }
+          // Modalities without a staged status API report ttm only.
+          type ObservedStages = { firstStatus?: CanonicalResult; ttm: CanonicalResult }
           const observeStatusStages = (): Promise<ObservedStages> => {
             if (statusObserver) {
               return statusObserver.watch(identifier, config.timeouts.canonicalMs)
                 .catch((error): StatusStages => {
                   const failed = observerError(error)
-                  return { firstStatus: failed, canonical: failed }
+                  return { firstStatus: failed, ttm: failed }
                 })
             }
             return (
@@ -156,7 +156,7 @@ export async function runBenchmarkGrid(
                 : canonicalOracle.watch(sponsored.userOpHash, fromBlock!, config.timeouts.canonicalMs)
             )
               .catch(observerError)
-              .then((result): ObservedStages => ({ canonical: result }))
+              .then((result): ObservedStages => ({ ttm: result }))
           }
 
           // preconf is measured concurrently and independently — it is the
@@ -166,7 +166,7 @@ export async function runBenchmarkGrid(
             flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs)
               .catch(() => ({ status: 'not-observed' as const })),
           ])
-          canonical = stages.canonical
+          ttm = stages.ttm
           firstStatus = stages.firstStatus
           preconf = observedPreconf
 
@@ -176,7 +176,7 @@ export async function runBenchmarkGrid(
             accountTypeLabel: row.accountTypeLabel,
             sponsored,
             acceptedAtMs,
-            canonical,
+            ttm,
             preconf,
             ...(firstStatus ? { firstStatus } : {}),
             runIndex: i,

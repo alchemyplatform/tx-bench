@@ -42,15 +42,17 @@ One path, three numbers, no stage that means two different things.
 | # | Ava's datapoint (P90) | Stage | Source |
 |---|---|---|---|
 | 1 | Flashblocks preconfirm time | `preconf` | `newFlashblockTransactions` WS — unchanged |
-| 2 | Time to mine | `canonical` | `wallet_getCallsStatus` → **200 only** |
+| 2 | Time to mine | `ttm` *(renamed)* | `wallet_getCallsStatus` → **200 only** |
 | 3 | First status response | `firstStatus` *(new)* | `wallet_getCallsStatus` → first terminal (110 **or** 200), split by `terminal_status` |
 
-`canonical` reverts to meaning "actually mined in a block", which is what readers already assume it means. That is what makes the Base special-case deletable.
+`ttm` means "actually mined in a block" — what readers already assumed `canonical` meant. That is what makes the Base special-case deletable.
+
+**Amended 2026-08-06:** the stage was renamed `canonical` → `ttm` during implementation. "Canonical" is the word that invited the misreading this plan exists to fix, and it stayed ambiguous even after the definition was corrected. The chain-level vocabulary keeps the old word where it is accurate — `CanonicalOracle`, `canonicalObserver`, `canonicalIdentifier`, `TIMEOUT_CANONICAL_MS` — because there it means canonical chain inclusion, not the measured stage. No extra epoch bump: `wallet-bso-v1` was never deployed, so the label value changes inside the same epoch.
 
 ### Requirements
 
 - R1. The monitored path is Wallet APIs with a BSO policy and defaults (7702 + MAv2). No second modality is monitored.
-- R2. `canonical` terminates only on `wallet_getCallsStatus` 200, on every network. It never derives from a Flashblock and never accepts 110.
+- R2. `ttm` terminates only on `wallet_getCallsStatus` 200, on every network. It never derives from a Flashblock and never accepts 110.
 - R3. `firstStatus` terminates on the first terminal status (110 or 200) and carries `terminal_status` so the split is visible.
 - R4. `preconf` remains the neutral Flashblocks WS measurement. It is Base-only; on other networks it reports `not-observed` and its panels are empty by design.
 - R5. Monitoring continues for non-Base networks (eth/opt/arb) with datapoints 2 and 3 only.
@@ -105,10 +107,10 @@ No new observer code is needed for datapoint 2: `canonicalObserver` (target `'co
 `earlyInclusionObserver` and `canonicalObserver` as two concurrent poll loops. That fails
 this plan's own ordering criterion: when 110 does not fire, both loops wait for the *same*
 200 and their poll phases differ by up to one 250ms interval, so `firstStatus` can land
-after `canonical`. Observed on 2 of 5 live attempts (inversions of 88ms and 55ms).
+after `ttm`. Observed on 2 of 5 live attempts (inversions of 88ms and 55ms).
 
 Replaced with a single poll stream: `AccountClient.earlyInclusionObserver` →
-`statusStagesObserver`, returning `{ firstStatus, canonical }` from one loop that records
+`statusStagesObserver`, returning `{ firstStatus, ttm }` from one loop that records
 110 if it arrives and continues to 200. Ordering now holds by construction, per-attempt
 `wallet_getCallsStatus` load halves, and when 110 does not fire both stages report the
 *same observation object* rather than two timings of one event.
@@ -130,7 +132,7 @@ Remove from `src/benchmark/service.ts`:
 
 ### Unit 5 — Epoch bump
 
-`MEASUREMENT_EPOCH` → `wallet-bso-v1`. The `canonical` definition genuinely changes (Flashblock/110 → 200-only), so history should break cleanly rather than silently mixing definitions inside one series. Contrast with the `terminal_status` label addition, which deliberately did **not** bump the epoch because only dimensionality changed.
+`MEASUREMENT_EPOCH` → `wallet-bso-v1`. The time-to-mine definition genuinely changes (Flashblock/110 → 200-only), so history should break cleanly rather than silently mixing definitions inside one series. Contrast with the `terminal_status` label addition, which deliberately did **not** bump the epoch because only dimensionality changed.
 
 ### Unit 6 — Cleanups
 
@@ -142,8 +144,8 @@ Remove from `src/benchmark/service.ts`:
 `monitoring/grafana/txe-write-bench-latency.json`:
 
 - Remove the BSO row and the cross-provider `preconf` comparison (single provider now).
-- Three P90 panels matching Ava's numbering: `preconf`, `canonical` (time to mine), `firstStatus`.
-- Keep the terminal-status breakdown, retargeted from `canonical` to `firstStatus`. This is where the rundler fix will visibly land: once dedup is fixed, `firstStatus` should drop toward `preconf`.
+- Three P90 panels matching Ava's numbering: `preconf`, `ttm` (time to mine), `firstStatus`.
+- Keep the terminal-status breakdown, retargeted from `ttm` to `firstStatus`. This is where the rundler fix will visibly land: once dedup is fixed, `firstStatus` should drop toward `preconf`.
 - Keep the `preconf` not-observed guard; note in its description that non-Base networks read empty by design.
 - Update `monitoring/README.md` for the new stage vocabulary.
 
@@ -160,7 +162,7 @@ Remove from `src/benchmark/service.ts`:
 
 1. `bun test` and `bunx tsc --noEmit` green.
 2. Unit 0 gate passes before any removal.
-3. One live monitor run against `base-mainnet`: confirm three distinct stage timings per attempt, with `preconf` < `firstStatus` ≤ `canonical`.
+3. One live monitor run against `base-mainnet`: confirm three distinct stage timings per attempt, with `preconf` < `firstStatus` ≤ `ttm`.
 4. One live run against a non-Base network: confirm `preconf` is `not-observed` and no 30s stall per iteration.
 5. Post-deploy Thanos check under `wallet-bso-v1`: all three stages present, `terminal_status` split visible on `firstStatus`, non-Base `preconf` absent.
 6. Re-check after the rundler fix lands: `firstStatus` should converge toward `preconf`.
@@ -168,5 +170,5 @@ Remove from `src/benchmark/service.ts`:
 ## Risks
 
 - **Unit 0 fails.** If the Wallet path needs the `x-alchemy-policy-id` header rather than a paymaster policy ID, Unit 1 grows. Mitigated by gating.
-- **Single-account nonce contention.** One path from one stable EOA means sequential sends. The probe hit "replacement underpriced" when sends overlapped. Monitor iterations are already serialized behind a full canonical wait, and dropping the second modality *reduces* per-iteration concurrency, but watch for it once `canonical` waits for 200 (~2s) rather than 110.
+- **Single-account nonce contention.** One path from one stable EOA means sequential sends. The probe hit "replacement underpriced" when sends overlapped. Monitor iterations are already serialized behind a full canonical wait, and dropping the second modality *reduces* per-iteration concurrency, but watch for it once `ttm` waits for 200 (~2s) rather than 110.
 - **Losing the cross-modality tie evidence.** After Unit 4 the monitor no longer produces the BSO-vs-Wallet `preconf` comparison that disproved the "4x slower" reading. Preserve the current numbers (us-east-1 p50 218ms vs 208ms) in this doc and in the PR description, and keep the CLI path able to reproduce it on demand.

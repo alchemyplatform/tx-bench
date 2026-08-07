@@ -6,8 +6,8 @@
  * credentials from the environment only — never from arguments.
  *
  * Checks everywhere:
- *   - canonical terminates on 200 only
- *   - firstStatus <= canonical, and both carry a terminal_status metric label
+ *   - ttm terminates on 200 only
+ *   - firstStatus <= ttm, and both carry a terminal_status metric label
  *   - providerReceipt is not emitted for the wallet path
  *
  * On base-mainnet additionally:
@@ -87,19 +87,19 @@ const cell = (v: number | null, s?: StageLog) => (v != null ? String(v).padStart
 console.log(`\n${'='.repeat(78)}`)
 console.log(`ATTEMPTS (${attempts.length}) — wall clock ${elapsedS}s`)
 console.log('='.repeat(78))
-console.log(['  #', 'preconf', ' first', ' canon', 'term', 'submit'].join(' | '))
+console.log(['  #', 'preconf', ' first', '   ttm', 'term', 'submit'].join(' | '))
 
-const rows: Array<{ i: number; preconf: number | null; first: number | null; canon: number | null; term: string }> = []
+const rows: Array<{ i: number; preconf: number | null; first: number | null; ttm: number | null; term: string }> = []
 for (const a of attempts) {
   const preconf = ms(a.stages.preconf)
   const first = ms(a.stages.firstStatus)
-  const canon = ms(a.stages.canonical)
-  rows.push({ i: a.run_index, preconf, first, canon, term: a.terminal_status ?? 'none' })
+  const ttm = ms(a.stages.ttm)
+  rows.push({ i: a.run_index, preconf, first, ttm, term: a.terminal_status ?? 'none' })
   console.log([
     String(a.run_index).padStart(3),
     cell(preconf, a.stages.preconf),
     cell(first, a.stages.firstStatus),
-    cell(canon, a.stages.canonical),
+    cell(ttm, a.stages.ttm),
     (a.terminal_status ?? 'none').padStart(4),
     cell(ms(a.stages.submit), a.stages.submit),
   ].join(' | '))
@@ -113,10 +113,10 @@ const problems: string[] = []
 
 if (attempts.length === 0) problems.push('no attempts were recorded')
 
-const statusTimed = rows.filter(r => r.first != null && r.canon != null)
+const statusTimed = rows.filter(r => r.first != null && r.ttm != null)
 if (statusTimed.length === 0) problems.push('no attempt produced both status stage timings')
 for (const r of statusTimed) {
-  if (!(r.first! <= r.canon!)) problems.push(`attempt ${r.i}: firstStatus ${r.first} !<= canonical ${r.canon}`)
+  if (!(r.first! <= r.ttm!)) problems.push(`attempt ${r.i}: firstStatus ${r.first} !<= ttm ${r.ttm}`)
 }
 
 if (isBase) {
@@ -147,8 +147,8 @@ if (isBase) {
     `(a stalled iteration would be >= ${preconfTimeoutMs}ms)`)
 }
 
-const badTerminal = rows.filter(r => r.canon != null && r.term !== '200')
-for (const r of badTerminal) problems.push(`attempt ${r.i}: canonical terminated on ${r.term}, expected 200`)
+const badTerminal = rows.filter(r => r.ttm != null && r.term !== '200')
+for (const r of badTerminal) problems.push(`attempt ${r.i}: ttm terminated on ${r.term}, expected 200`)
 
 // ── Metric shape ─────────────────────────────────────────────────────────────
 const counts = (await metrics.stageLatency.get()).values
@@ -163,7 +163,7 @@ for (const v of counts.sort((a, b) => String(a.labels.stage).localeCompare(Strin
 }
 
 const stagesSeen = new Set(counts.map(v => String(v.labels.stage)))
-for (const s of isBase ? ['preconf', 'firstStatus', 'canonical'] : ['firstStatus', 'canonical']) {
+for (const s of isBase ? ['preconf', 'firstStatus', 'ttm'] : ['firstStatus', 'ttm']) {
   if (!stagesSeen.has(s)) problems.push(`no latency series emitted for stage "${s}"`)
 }
 if (!isBase && stagesSeen.has('preconf')) {

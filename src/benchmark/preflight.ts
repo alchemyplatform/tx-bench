@@ -148,15 +148,15 @@ export async function runPreflight(
       if (!flashblockAvailable) {
         warnings.push(
           `Flashblock endpoint (${config.neutral.flashblockWsUrl}) is not reachable — ` +
-          'running in canonical-only mode. Preconfirmation timing will not be available.'
+          'preconfirmation timing will not be available.'
         )
       }
     } catch {
-      warnings.push('Flashblock probe threw — running in canonical-only mode')
+      warnings.push('Flashblock probe threw — preconfirmation timing will not be available')
     }
   } else {
     warnings.push(
-      'NEUTRAL_FLASHBLOCK_WS_URL not set — running in canonical-only mode. ' +
+      'NEUTRAL_FLASHBLOCK_WS_URL not set — ' +
       'Preconfirmation timing will not be available.'
     )
   }

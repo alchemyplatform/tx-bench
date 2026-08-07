@@ -138,7 +138,7 @@ describe('alchemyMAv2BSOAdapter — eth_getUserOperationReceipt observer', () =>
     })
   })
 
-  it('maps success false to a terminal canonical failure', async () => {
+  it('maps success false to a terminal ttm failure', async () => {
     const adapter = createAlchemyMAv2BSOAdapter({
       receiptRequest: async () => ({
         success: false,
@@ -157,7 +157,7 @@ describe('alchemyMAv2BSOAdapter — eth_getUserOperationReceipt observer', () =>
     })
   })
 
-  it('does not treat a preconfirmed response without mined identifiers as canonical', async () => {
+  it('does not treat a preconfirmed response without mined identifiers as ttm', async () => {
     const responses = [
       { success: true, receipt: { blockNumber: null, transactionHash: null } },
       { success: true, receipt: { blockNumber: 102n, transactionHash: txHash } },
@@ -212,7 +212,7 @@ describe('alchemyMAv2BSOAdapter — eth_getUserOperationReceipt observer', () =>
     // success=true but blockNumber is a non-BigInt-convertible value, so
     // BigInt(blockNumber!) throws after the poll succeeds. The error must be
     // contained and reported as observer-error with the actual poll count,
-    // not lost as pollCount: 0 by service.ts canonicalPromise.catch.
+    // not lost as pollCount: 0 by the service's observer error handler.
     const adapter = createAlchemyMAv2BSOAdapter({
       receiptRequest: async () => ({
         success: true,

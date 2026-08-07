@@ -12,7 +12,7 @@ export type Stage = {
 
 export type BlockPosition = {
   blockNumber: bigint
-  txHash?: `0x${string}`       // present for canonical; may be absent for flashblock preconf
+  txHash?: `0x${string}`       // present for ttm; may be absent for flashblock preconf
   flashblockIndex?: number     // position within the block's flashblock sequence (preconf only)
 }
 
@@ -41,10 +41,10 @@ export type RunRecord = {
   stages: {
     submit: Stage
     preconf: Stage
-    canonical: Stage
+    ttm: Stage
     providerReceipt: Stage
     // First terminal status from the provider, whatever it is (110 or 200),
-    // where `canonical` waits for 200. Present only for modalities with an
+    // where `ttm` waits for 200. Present only for modalities with an
     // early-inclusion observer.
     firstStatus?: Stage
     prepare?: Stage  // Optional decomposition of submit (Wallet SendCalls only)
@@ -52,9 +52,9 @@ export type RunRecord = {
   }
   blockPositions: {
     preconf?: BlockPosition
-    canonical?: BlockPosition
+    ttm?: BlockPosition
   }
-  canonicalObservation?: {
+  ttmObservation?: {
     api: CanonicalObserverApi
     pollCount: number
     terminalStatus?: string
@@ -96,7 +96,7 @@ export type ProviderMetrics = {
   stages: {
     submit?: StageMetrics
     preconf?: StageMetrics
-    canonical?: StageMetrics
+    ttm?: StageMetrics
     firstStatus?: StageMetrics
     providerReceipt?: StageMetrics
     prepare?: StageMetrics  // Optional decomposition of submit (Wallet SendCalls only)

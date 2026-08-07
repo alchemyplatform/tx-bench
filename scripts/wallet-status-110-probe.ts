@@ -3,7 +3,7 @@
  * Does wallet_getCallsStatus ever emit status 110 (Flashblock-preconfirmed) on Base?
  *
  * The monitor treats 110 as its preconfirmation signal for the wallet-sendcalls
- * modality, but production data shows the `canonical` stage landing at ~1.7s (one
+ * modality, but production data shows the `ttm` stage landing at ~1.7s (one
  * Base block) with zero observations under 500ms — consistent with the API going
  * 100 → 200 and never surfacing 110. Our normal observer polls on a 250ms fast
  * interval, so this probe re-checks at a much tighter cadence to rule out the

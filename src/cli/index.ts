@@ -298,7 +298,7 @@ program
       console.warn(`  ⚠️   ${warn}`)
     }
 
-    console.log(`\n✅  Preflight passed. Flashblock: ${preflight.flashblockAvailable ? 'available' : 'unavailable (canonical-only)'}`)
+    console.log(`\n✅  Preflight passed. Flashblock: ${preflight.flashblockAvailable ? 'available' : 'unavailable (ttm-only)'}`)
   })
 
 // ── run ───────────────────────────────────────────────────────────────────────

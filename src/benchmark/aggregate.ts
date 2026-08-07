@@ -54,7 +54,7 @@ export function aggregateRuns(
     stages: {
       submit: computeStageMetrics(collectMs('submit')),
       preconf: computeStageMetrics(collectMs('preconf')),
-      canonical: computeStageMetrics(collectMs('canonical')),
+      ttm: computeStageMetrics(collectMs('ttm')),
       firstStatus: computeStageMetrics(collectMs('firstStatus')),
       providerReceipt: computeStageMetrics(collectMs('providerReceipt')),
       prepare: computeStageMetrics(collectMs('prepare')),

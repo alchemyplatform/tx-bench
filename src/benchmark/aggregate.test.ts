@@ -65,7 +65,7 @@ function makeRecord(submitMs: number, canonicalMs: number, error?: string): RunR
     stages: {
       submit: error ? { status: 'failed', reason: error } : { status: 'ok', ms: submitMs },
       preconf: { status: 'not-observed' },
-      canonical: error ? { status: 'not-observed' } : { status: 'ok', ms: canonicalMs },
+      ttm: error ? { status: 'not-observed' } : { status: 'ok', ms: canonicalMs },
       providerReceipt: { status: 'not-observed' },
     },
     blockPositions: {},
@@ -84,7 +84,7 @@ function makeWalletRecord(submitMs: number, prepareMs: number, sendMs: number, c
     stages: {
       submit: error ? { status: 'failed', reason: error } : { status: 'ok', ms: submitMs },
       preconf: { status: 'not-observed' },
-      canonical: error ? { status: 'not-observed' } : { status: 'ok', ms: canonicalMs },
+      ttm: error ? { status: 'not-observed' } : { status: 'ok', ms: canonicalMs },
       providerReceipt: { status: 'not-observed' },
       ...(error ? {} : { prepare: { status: 'ok' as const, ms: prepareMs } }),
       ...(error ? {} : { send: { status: 'ok' as const, ms: sendMs } }),
@@ -109,7 +109,7 @@ describe('aggregateRuns', () => {
     expect(metrics.stages.submit?.p95).toBe(300)
     expect(metrics.stages.submit?.p99).toBe(300)
     expect(metrics.stages.submit?.count).toBe(3)
-    expect(metrics.stages.canonical?.median).toBe(2000)
+    expect(metrics.stages.ttm?.median).toBe(2000)
   })
 
   it('counts failures but excludes them from stage metrics', () => {
@@ -132,7 +132,7 @@ describe('aggregateRuns', () => {
 
     expect(metrics.failureCount).toBe(2)
     expect(metrics.stages.submit).toBeUndefined()
-    expect(metrics.stages.canonical).toBeUndefined()
+    expect(metrics.stages.ttm).toBeUndefined()
   })
 
   it('handles a single-run input without crashing', () => {
@@ -214,7 +214,7 @@ describe('aggregateRuns — prepare/send stages', () => {
 })
 
 describe('aggregateRuns — partial success', () => {
-  it('includes every successful stage even when a later canonical observer failed', () => {
+  it('includes every successful stage even when a later ttm observer failed', () => {
     const record: RunRecord = {
       provider: 'alchemy-wallet-sendcalls',
       runIndex: 0,
@@ -228,7 +228,7 @@ describe('aggregateRuns — partial success', () => {
         send: { status: 'ok', ms: 20 },
         submit: { status: 'ok', ms: 60 },
         preconf: { status: 'not-observed' },
-        canonical: { status: 'observer-error', reason: 'status API unavailable' },
+        ttm: { status: 'observer-error', reason: 'status API unavailable' },
         providerReceipt: { status: 'not-observed' },
       },
       blockPositions: {},
@@ -246,6 +246,6 @@ describe('aggregateRuns — partial success', () => {
     expect(metrics.stages.prepare?.count).toBe(1)
     expect(metrics.stages.send?.count).toBe(1)
     expect(metrics.stages.submit?.count).toBe(1)
-    expect(metrics.stages.canonical).toBeUndefined()
+    expect(metrics.stages.ttm).toBeUndefined()
   })
 })

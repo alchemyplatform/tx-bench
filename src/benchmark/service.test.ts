@@ -152,7 +152,7 @@ describe('runBenchmarkGrid — per-provider error isolation', () => {
 })
 
 describe('runBenchmarkGrid — accepted submission lifecycle', () => {
-  it('uses an adapter-owned canonical observer without touching the fallback oracle', async () => {
+  it('uses an adapter-owned ttm observer without touching the fallback oracle', async () => {
     const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
     const canonicalIdentifier = ('0x' + 'ab'.repeat(32)) as `0x${string}`
     const observerWatch = mock(async () => ({
@@ -204,11 +204,11 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
     expect(fallbackWatch).not.toHaveBeenCalled()
     expect(observerWatch).toHaveBeenCalledWith(canonicalIdentifier, 10_000)
     expect(result.records[0].stages.submit).toEqual({ status: 'ok', ms: 125 })
-    expect(result.records[0].stages.canonical.status).toBe('timed-out')
+    expect(result.records[0].stages.ttm.status).toBe('timed-out')
     expect(result.records[0].acceptedAtMs).toBe(500)
   })
 
-  it('never derives canonical from a Flashblock, whatever the Flashblock outcome', async () => {
+  it('never derives ttm from a Flashblock, whatever the Flashblock outcome', async () => {
     const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
     const confirmedOutcomes = [900, 910, 920, 930]
     const ownedWatch = mock(async () => ({
@@ -273,26 +273,27 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
     expect(fallbackWatch).not.toHaveBeenCalled()
     expect(flashblockWatch).toHaveBeenCalledTimes(flashblockOutcomes.length)
     expect(flashblockWatch).toHaveBeenCalledWith(userOpHash, 5_000)
-    // The Flashblock pre-warm existed only to serve the deleted canonical path.
+    // The Flashblock pre-warm existed only to serve the deleted Flashblock-sourced
+    // ttm path.
     expect(flashblockReady).not.toHaveBeenCalled()
 
-    // preconf varies with the Flashblock outcome; canonical is the confirmed
+    // preconf varies with the Flashblock outcome; ttm is the confirmed
     // observer's timing in every case, including the one where a Flashblock was
     // cleanly observed (record 0). That identity is what used to collapse the
     // two stages into the same number.
     expect(result.records[0].stages.preconf).toEqual({ status: 'ok', ms: 200 })
-    expect(result.records[0].stages.canonical).toEqual({ status: 'ok', ms: 400 })
-    expect(result.records[0].canonicalObservation?.api).toBe('eth_getUserOperationReceipt')
-    expect(result.records[0].blockPositions.canonical?.blockNumber).toBe(124n)
+    expect(result.records[0].stages.ttm).toEqual({ status: 'ok', ms: 400 })
+    expect(result.records[0].ttmObservation?.api).toBe('eth_getUserOperationReceipt')
+    expect(result.records[0].blockPositions.ttm?.blockNumber).toBe(124n)
     expect(result.records[1].stages.preconf).toEqual({ status: 'not-observed' })
-    expect(result.records[1].stages.canonical).toEqual({ status: 'ok', ms: 410 })
+    expect(result.records[1].stages.ttm).toEqual({ status: 'ok', ms: 410 })
     expect(result.records[2].stages.preconf).toEqual({
       status: 'not-observed',
       reason: 'inclusion not neutrally attributable',
     })
-    expect(result.records[2].stages.canonical).toEqual({ status: 'ok', ms: 420 })
+    expect(result.records[2].stages.ttm).toEqual({ status: 'ok', ms: 420 })
     expect(result.records[3].stages.preconf).toEqual({ status: 'not-observed' })
-    expect(result.records[3].stages.canonical).toEqual({ status: 'ok', ms: 430 })
+    expect(result.records[3].stages.ttm).toEqual({ status: 'ok', ms: 430 })
     // No modality declares an early-inclusion observer here, so no firstStatus.
     expect(result.records.every(r => r.stages.firstStatus === undefined)).toBe(true)
     expect(result.metrics.stages.firstStatus).toBeUndefined()
@@ -349,11 +350,11 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
     expect(flashblockWatch).toHaveBeenCalledWith(userOpHash, 5_000)
     expect(confirmedWatch).toHaveBeenCalledWith(userOpHash, 10_000)
     expect(result.records[0].stages.preconf).toEqual({ status: 'not-observed' })
-    expect(result.records[0].stages.canonical).toEqual({ status: 'ok', ms: 400 })
-    expect(result.records[0].canonicalObservation?.api).toBe('eth_getUserOperationReceipt')
+    expect(result.records[0].stages.ttm).toEqual({ status: 'ok', ms: 400 })
+    expect(result.records[0].ttmObservation?.api).toBe('eth_getUserOperationReceipt')
   })
 
-  it('measures preconf, firstStatus, and canonical as three separate observations', async () => {
+  it('measures preconf, firstStatus, and ttm as three separate observations', async () => {
     const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
     const callId = ('0x' + 'ab'.repeat(32)) as `0x${string}`
     // One staged observer, one poll stream, two results — the service must not
@@ -364,7 +365,7 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
         tMs: 700,
         observation: { api: 'wallet_getCallsStatus' as const, pollCount: 2, terminalStatus: '110' },
       },
-      canonical: {
+      ttm: {
         status: 'ok' as const,
         blockNumber: 124n,
         txHash: ('0x' + 'cd'.repeat(32)) as `0x${string}`,
@@ -426,13 +427,13 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
     const record = result.records[0]
     expect(record.stages.preconf).toEqual({ status: 'ok', ms: 180 })
     expect(record.stages.firstStatus).toEqual({ status: 'ok', ms: 200 })
-    expect(record.stages.canonical).toEqual({ status: 'ok', ms: 1_900 })
+    expect(record.stages.ttm).toEqual({ status: 'ok', ms: 1_900 })
     expect(record.firstStatusObservation).toEqual({
       api: 'wallet_getCallsStatus',
       pollCount: 2,
       terminalStatus: '110',
     })
-    expect(record.canonicalObservation).toEqual({
+    expect(record.ttmObservation).toEqual({
       api: 'wallet_getCallsStatus',
       pollCount: 6,
       terminalStatus: '200',
@@ -489,15 +490,15 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
     expect(record.stages.prepare).toEqual({ status: 'ok', ms: 50 })
     expect(record.stages.send).toEqual({ status: 'ok', ms: 30 })
     expect(record.stages.submit).toEqual({ status: 'ok', ms: 80 })
-    expect(record.stages.canonical.status).toBe('observer-error')
-    expect(record.stages.canonical.reason).toContain('[REDACTED_ALCHEMY_URL]')
-    expect(record.stages.canonical.reason).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
-    expect(record.stages.canonical.reason).not.toContain(apiKey)
-    expect(record.stages.canonical.reason).not.toContain(TEST_OWNER_KEY)
+    expect(record.stages.ttm.status).toBe('observer-error')
+    expect(record.stages.ttm.reason).toContain('[REDACTED_ALCHEMY_URL]')
+    expect(record.stages.ttm.reason).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+    expect(record.stages.ttm.reason).not.toContain(apiKey)
+    expect(record.stages.ttm.reason).not.toContain(TEST_OWNER_KEY)
     expect(result.metrics.stages.prepare?.count).toBe(1)
     expect(result.metrics.stages.send?.count).toBe(1)
     expect(result.metrics.stages.submit?.count).toBe(1)
-    expect(result.metrics.stages.canonical).toBeUndefined()
+    expect(result.metrics.stages.ttm).toBeUndefined()
   })
 })
 

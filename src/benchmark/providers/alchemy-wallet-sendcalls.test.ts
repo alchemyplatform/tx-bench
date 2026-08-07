@@ -132,7 +132,7 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
     })
   })
 
-  it('captures 110 as firstStatus and 200 as canonical from ONE poll stream', async () => {
+  it('captures 110 as firstStatus and 200 as ttm from ONE poll stream', async () => {
     const calls: Array<{ method: string; params: readonly unknown[] }> = []
     const responses = [
       { status: 100 },
@@ -160,7 +160,7 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
       tMs: expect.any(Number),
       observation: { api: 'wallet_getCallsStatus', pollCount: 2, terminalStatus: '110' },
     })
-    expect(stages.canonical).toEqual({
+    expect(stages.ttm).toEqual({
       status: 'ok',
       blockNumber: 100n,
       txHash,
@@ -168,13 +168,13 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
       observation: { api: 'wallet_getCallsStatus', pollCount: 3, terminalStatus: '200' },
     })
     // The ordering the plan asserts, guaranteed by construction.
-    if (stages.firstStatus.status !== 'ok' || stages.canonical.status !== 'ok') {
+    if (stages.firstStatus.status !== 'ok' || stages.ttm.status !== 'ok') {
       throw new Error('expected both stages to be ok')
     }
-    expect(stages.firstStatus.tMs).toBeLessThanOrEqual(stages.canonical.tMs)
+    expect(stages.firstStatus.tMs).toBeLessThanOrEqual(stages.ttm.tMs)
   })
 
-  it('reports firstStatus as the identical observation as canonical when 110 never fires', async () => {
+  it('reports firstStatus as the identical observation as ttm when 110 never fires', async () => {
     const responses = [
       { status: 100 },
       { status: 200, receipts: [{ blockNumber: '0x64', transactionHash: txHash }] },
@@ -189,8 +189,8 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
 
     // Not "approximately equal" — the same object. Two poll loops would have
     // produced two timings of this one event, differing by up to a poll interval.
-    expect(stages.firstStatus).toBe(stages.canonical)
-    expect(stages.canonical.observation?.terminalStatus).toBe('200')
+    expect(stages.firstStatus).toBe(stages.ttm)
+    expect(stages.ttm.observation?.terminalStatus).toBe('200')
   })
 
   it('propagates a failed poll to both stages', async () => {
@@ -201,12 +201,12 @@ describe('alchemyWalletSendCallsAdapter — wallet_getCallsStatus observer', () 
 
     const stages = await client.statusStagesObserver!.watch(callId, 10_000)
 
-    expect(stages.canonical.status).toBe('integrity-fail')
-    expect(stages.firstStatus).toBe(stages.canonical)
+    expect(stages.ttm.status).toBe('integrity-fail')
+    expect(stages.firstStatus).toBe(stages.ttm)
   })
 
   for (const status of [400, 500, 600]) {
-    it(`maps terminal status ${status} to canonical failure`, async () => {
+    it(`maps terminal status ${status} to ttm failure`, async () => {
       const adapter = createAlchemyWalletSendCallsAdapter({
         statusRequest: async () => ({ status }),
       })
@@ -620,7 +620,7 @@ describe('alchemyWalletSendCallsAdapter — ensureDeployed (self-bootstrap)', ()
     await expect(client.ensureDeployed!()).rejects.toThrow('eth_getCode failed')
   })
 
-  it('integration: sendSponsored returns accepted state before canonical observation', async () => {
+  it('integration: sendSponsored returns accepted state before ttm observation', async () => {
     const mockClient = {
       prepareCalls: async () => ({ type: 'user-operation-v060', data: {} }),
       signPreparedCalls: async () => ({ type: 'user-operation-v060', data: {}, signature: { type: 'secp256k1', data: '0x' + 'f'.repeat(130) } }),
@@ -829,7 +829,7 @@ describe('alchemyWalletSendCallsAdapter — prepare/send stage refactor', () => 
     expect(callOrder).not.toContain('waitForCallsStatus')
   })
 
-  it('integration: canonical observation is adapter-owned and outside submission', async () => {
+  it('integration: ttm observation is adapter-owned and outside submission', async () => {
     const { mockClient } = makePrepareSendMock()
     const mockCreateClient = (() => mockClient) as unknown as typeof import('@alchemy/wallet-apis').createSmartWalletClient
 

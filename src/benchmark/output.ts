@@ -81,7 +81,7 @@ export type StageRow = {
   prepare?: { median: number; p95: number; count: number }
   send?: { median: number; p95: number; count: number }
   preconf?: { median: number; p95: number; count: number }
-  canonical?: { median: number; p95: number; count: number }
+  ttm?: { median: number; p95: number; count: number }
   preconfAvailable: boolean
 }
 

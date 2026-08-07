@@ -83,7 +83,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     this.canonicalObserver = {
       api: 'wallet_getCallsStatus',
       watch: async (identifier, timeoutMs) =>
-        (await this._watchStatusStages(identifier, timeoutMs, ownerPrivateKey)).canonical,
+        (await this._watchStatusStages(identifier, timeoutMs, ownerPrivateKey)).ttm,
     }
     this.statusStagesObserver = {
       api: 'wallet_getCallsStatus',
@@ -91,7 +91,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     }
   }
 
-  // One poll stream, two stages. `canonical` resolves on 200; `firstStatus`
+  // One poll stream, two stages. `ttm` resolves on 200; `firstStatus`
   // captures whichever terminal status the stream saw first, which is 110 when
   // it fires and otherwise that same 200 — the identical observation, not a
   // second measurement of it.
@@ -106,7 +106,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     const polled = await pollObserver({
       request: () => request({ method: 'wallet_getCallsStatus', params: [callId] }),
       // 100 is pending; other 1xx values (including 110) remain pending, because
-      // canonical means mined and only 200 says that.
+      // ttm means mined and only 200 says that.
       isPending: response => response.status >= 100 && response.status < STATUS_CONFIRMED,
       // Only 110 is captured here. Any other status either keeps the loop
       // running (1xx) or ends it (200, or a 4xx-6xx failure), and in those
@@ -122,13 +122,13 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
       sleep: this.observerSleep,
     })
 
-    const canonical = this._resultFromPoll(polled, ownerPrivateKey)
+    const ttm = this._resultFromPoll(polled, ownerPrivateKey)
 
     // No 110 means the first terminal status IS whatever ended the loop, so both
     // stages report the same observation rather than two timings of it.
-    if (early === undefined) return { firstStatus: canonical, canonical }
+    if (early === undefined) return { firstStatus: ttm, ttm }
 
-    return { firstStatus: this._okResult(early.response, early.atMs, early.pollCount), canonical }
+    return { firstStatus: this._okResult(early.response, early.atMs, early.pollCount), ttm }
   }
 
   private _okResult(

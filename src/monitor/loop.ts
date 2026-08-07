@@ -205,7 +205,7 @@ function observerApiForProvider(provider: string, network: string): string {
 // providerReceipt is omitted for wallet-sendcalls: it was 100% not-observed in
 // every production window, so the series carried no signal.
 function expectedStages(protocolClass: ProtocolClass): Array<keyof RunRecord['stages']> {
-  const common: Array<keyof RunRecord['stages']> = ['submit', 'preconf', 'firstStatus', 'canonical']
+  const common: Array<keyof RunRecord['stages']> = ['submit', 'preconf', 'firstStatus', 'ttm']
   return protocolClass === 'wallet-sendcalls'
     ? ['prepare', 'send', ...common]
     : [...common, 'providerReceipt']
@@ -216,7 +216,7 @@ function expectedStages(protocolClass: ProtocolClass): Array<keyof RunRecord['st
 // submit/prepare/preconf with it would be meaningless and would multiply those
 // series by every observed status value.
 //
-// This is what makes the 110-vs-200 split visible in Grafana. `canonical` now
+// This is what makes the 110-vs-200 split visible in Grafana. `ttm` now
 // only ever ends on 200, so the informative split lives on `firstStatus`: 110
 // fires only intermittently and lands ~1s behind actual Flashblock inclusion,
 // and once the rundler dedup fix lands firstStatus should drop toward preconf.
@@ -224,7 +224,7 @@ function terminalStatusForStage(
   record: RunRecord,
   stage: keyof RunRecord['stages'],
 ): string {
-  if (stage === 'canonical') return record.canonicalObservation?.terminalStatus ?? TERMINAL_STATUS_NONE
+  if (stage === 'ttm') return record.ttmObservation?.terminalStatus ?? TERMINAL_STATUS_NONE
   if (stage === 'firstStatus') return record.firstStatusObservation?.terminalStatus ?? TERMINAL_STATUS_NONE
   return TERMINAL_STATUS_NONE
 }
@@ -264,7 +264,7 @@ function logRunResults(
     }))
 
     for (const rec of records) {
-      const observerApi = rec.canonicalObservation?.api ?? observerApiForProvider(row.id, network)
+      const observerApi = rec.ttmObservation?.api ?? observerApiForProvider(row.id, network)
       const attemptStages = Object.fromEntries(expectedStages(rec.protocolClass).map((stage) => {
         const value = rec.stages[stage] ?? { status: 'not-observed' as const }
         return [stage, {
@@ -283,9 +283,9 @@ function logRunResults(
         run_index: rec.runIndex,
         accepted_at_ms: rec.acceptedAtMs ?? null,
         observer_api: observerApi,
-        poll_count: rec.canonicalObservation?.pollCount ?? 0,
-        terminal_status: rec.canonicalObservation?.terminalStatus ?? null,
-        error_class: rec.canonicalObservation?.errorClass ?? null,
+        poll_count: rec.ttmObservation?.pollCount ?? 0,
+        terminal_status: rec.ttmObservation?.terminalStatus ?? null,
+        error_class: rec.ttmObservation?.errorClass ?? null,
         stages: attemptStages,
       }))
 
@@ -315,7 +315,7 @@ function emitRunMetrics(results: ProviderRunResult[], metrics: MonitorMetrics, n
   for (const { records, metrics: pm } of results) {
     const recordsByObserver = new Map<string, RunRecord[]>()
     for (const record of records) {
-      const observerApi = record.canonicalObservation?.api
+      const observerApi = record.ttmObservation?.api
         ?? observerApiForProvider(pm.provider, network)
       const observerRecords = recordsByObserver.get(observerApi) ?? []
       observerRecords.push(record)

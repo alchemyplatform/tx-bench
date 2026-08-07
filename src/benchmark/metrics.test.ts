@@ -75,7 +75,7 @@ describe('buildRunRecord — complete run', () => {
       accountTypeLabel: 'Light Account v2',
       sponsored: SPONSORED,
       acceptedAtMs: ACCEPTED_AT,
-      canonical: CANONICAL_OK,
+      ttm: CANONICAL_OK,
       preconf: PRECONF_OK,
       providerReceiptMs: 3000,
       gas: {
@@ -90,11 +90,11 @@ describe('buildRunRecord — complete run', () => {
 
     expect(record.stages.submit).toEqual({ status: 'ok', ms: 300 })
     expect(record.stages.preconf).toEqual({ status: 'ok', ms: 2000 })
-    expect(record.stages.canonical).toEqual({ status: 'ok', ms: 4000 })
+    expect(record.stages.ttm).toEqual({ status: 'ok', ms: 4000 })
     expect(record.stages.providerReceipt).toEqual({ status: 'ok', ms: 3000 })
 
-    expect(record.blockPositions.canonical?.blockNumber).toBe(999n)
-    expect(record.blockPositions.canonical?.txHash).toBe(TX)
+    expect(record.blockPositions.ttm?.blockNumber).toBe(999n)
+    expect(record.blockPositions.ttm?.txHash).toBe(TX)
     expect(record.blockPositions.preconf?.blockNumber).toBe(999n)
     expect(record.blockPositions.preconf?.flashblockIndex).toBe(1)
 
@@ -115,16 +115,16 @@ describe('buildRunRecord — complete run', () => {
       accountTypeLabel: 'Light Account v2',
       sponsored: SPONSORED,
       acceptedAtMs: ACCEPTED_AT,
-      canonical: CANONICAL_OK,
+      ttm: CANONICAL_OK,
       preconf: PRECONF_OK,
       runIndex: 0,
     })
 
     // The blockNumber — skew-immune and independently verifiable — is the primary value
-    expect(record.blockPositions.canonical?.blockNumber).toBe(999n)
+    expect(record.blockPositions.ttm?.blockNumber).toBe(999n)
     expect(record.blockPositions.preconf?.blockNumber).toBe(999n)
     // Wall-clock arrival is embedded in stage.ms only as a secondary tiebreaker
-    expect(record.stages.canonical.ms).toBe(4000)
+    expect(record.stages.ttm.ms).toBe(4000)
   })
 })
 
@@ -144,7 +144,7 @@ describe('buildRunRecord — submit failure', () => {
     expect(record.stages.submit.status).toBe('failed')
     expect(record.stages.submit.reason).toContain('gas limit')
     expect(record.stages.preconf.status).toBe('not-observed')
-    expect(record.stages.canonical.status).toBe('not-observed')
+    expect(record.stages.ttm.status).toBe('not-observed')
     expect(record.stages.providerReceipt.status).toBe('not-observed')
     // No zero-latency masquerade — no ms field when stage is failed/not-observed
     expect(record.stages.submit.ms).toBeUndefined()
@@ -152,42 +152,42 @@ describe('buildRunRecord — submit failure', () => {
   })
 })
 
-describe('buildRunRecord — preconf not-observed, canonical ok', () => {
-  it('sets preconf not-observed and canonical ok', () => {
+describe('buildRunRecord — preconf not-observed, ttm ok', () => {
+  it('sets preconf not-observed and ttm ok', () => {
     const record = buildRunRecord({
       kind: 'success',
       provider: 'alchemy-light-account',
       accountTypeLabel: 'Light Account v2',
       sponsored: SPONSORED,
       acceptedAtMs: ACCEPTED_AT,
-      canonical: CANONICAL_OK,
+      ttm: CANONICAL_OK,
       preconf: PRECONF_NOT_OBSERVED,
       runIndex: 0,
     })
 
     expect(record.stages.preconf.status).toBe('not-observed')
-    expect(record.stages.canonical.status).toBe('ok')
+    expect(record.stages.ttm.status).toBe('ok')
     expect(record.blockPositions.preconf).toBeUndefined()
-    expect(record.blockPositions.canonical?.blockNumber).toBe(999n)
+    expect(record.blockPositions.ttm?.blockNumber).toBe(999n)
   })
 })
 
-describe('buildRunRecord — canonical timed-out', () => {
-  it('sets canonical timed-out, preconf ok', () => {
+describe('buildRunRecord — ttm timed-out', () => {
+  it('sets ttm timed-out, preconf ok', () => {
     const record = buildRunRecord({
       kind: 'success',
       provider: 'alchemy-light-account',
       accountTypeLabel: 'Light Account v2',
       sponsored: SPONSORED,
       acceptedAtMs: ACCEPTED_AT,
-      canonical: CANONICAL_TIMEOUT,
+      ttm: CANONICAL_TIMEOUT,
       preconf: PRECONF_OK,
       runIndex: 0,
     })
 
     expect(record.stages.preconf.status).toBe('ok')
-    expect(record.stages.canonical.status).toBe('timed-out')
-    expect(record.blockPositions.canonical).toBeUndefined()
+    expect(record.stages.ttm.status).toBe('timed-out')
+    expect(record.blockPositions.ttm).toBeUndefined()
   })
 })
 
@@ -199,7 +199,7 @@ describe('buildRunRecord — not-attributable intent relay', () => {
       accountTypeLabel: 'Kernel v3',
       sponsored: { ...SPONSORED, protocolClass: 'intent-relay' },
       acceptedAtMs: ACCEPTED_AT,
-      canonical: CANONICAL_TIMEOUT,
+      ttm: CANONICAL_TIMEOUT,
       preconf: { status: 'not-attributable' } satisfies FlashblockResult,
       runIndex: 0,
     })
@@ -217,7 +217,7 @@ describe('buildRunRecord — null gas', () => {
       accountTypeLabel: 'Light Account v2',
       sponsored: SPONSORED,
       acceptedAtMs: ACCEPTED_AT,
-      canonical: CANONICAL_OK,
+      ttm: CANONICAL_OK,
       preconf: PRECONF_NOT_OBSERVED,
       runIndex: 0,
     })
@@ -232,7 +232,7 @@ describe('buildRunRecord — null gas', () => {
       accountTypeLabel: 'Light Account v2',
       sponsored: SPONSORED,
       acceptedAtMs: ACCEPTED_AT,
-      canonical: CANONICAL_OK,
+      ttm: CANONICAL_OK,
       preconf: PRECONF_NOT_OBSERVED,
       gas: { gasUsed: undefined, effectiveGasPrice: undefined },
       runIndex: 0,
