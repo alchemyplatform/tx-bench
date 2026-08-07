@@ -152,7 +152,7 @@ describe('runBenchmarkGrid — per-provider error isolation', () => {
 })
 
 describe('runBenchmarkGrid — accepted submission lifecycle', () => {
-  it('uses an adapter-owned canonical observer without touching the fallback oracle', async () => {
+  it('uses an adapter-owned ttm observer without touching the fallback oracle', async () => {
     const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
     const canonicalIdentifier = ('0x' + 'ab'.repeat(32)) as `0x${string}`
     const observerWatch = mock(async () => ({
@@ -204,13 +204,12 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
     expect(fallbackWatch).not.toHaveBeenCalled()
     expect(observerWatch).toHaveBeenCalledWith(canonicalIdentifier, 10_000)
     expect(result.records[0].stages.submit).toEqual({ status: 'ok', ms: 125 })
-    expect(result.records[0].stages.canonical.status).toBe('timed-out')
+    expect(result.records[0].stages.ttm.status).toBe('timed-out')
     expect(result.records[0].acceptedAtMs).toBe(500)
   })
 
-  it('prefers an observed Flashblock and falls back to confirmed inclusion for Base canonical timing', async () => {
+  it('never derives ttm from a Flashblock, whatever the Flashblock outcome', async () => {
     const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
-    const lifecycle: string[] = []
     const confirmedOutcomes = [900, 910, 920, 930]
     const ownedWatch = mock(async () => ({
       status: 'ok' as const,
@@ -234,7 +233,6 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
             watch: ownedWatch,
           },
           async sendSponsored() {
-            lifecycle.push('send')
             return {
               userOpHash,
               protocolClass: '4337-bundler' as const,
@@ -260,47 +258,48 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
       if (outcome instanceof Error) throw outcome
       return outcome
     })
-    const flashblockReady = mock(async () => { lifecycle.push('ready') })
+    const flashblockReady = mock(async () => {})
 
     const [result] = await runBenchmarkGrid(
       { ...SINGLE_RUN_CONFIG, runCount: flashblockOutcomes.length },
       [{ row: makeRow('alchemy-mav2-bso', '4337-bundler'), adapter }],
       { getBlockNumber: fallbackGetBlock, watch: fallbackWatch, close() {} },
       { ready: flashblockReady, watch: flashblockWatch, close() {} },
-      undefined,
-      { canonicalSource: 'earliest-signal' },
     )
 
     expect(ownedWatch).toHaveBeenCalledTimes(flashblockOutcomes.length)
     expect(ownedWatch).toHaveBeenCalledWith(userOpHash, 10_000)
-    expect(flashblockReady).toHaveBeenCalledTimes(1)
-    expect(lifecycle[0]).toBe('ready')
     expect(fallbackGetBlock).not.toHaveBeenCalled()
     expect(fallbackWatch).not.toHaveBeenCalled()
     expect(flashblockWatch).toHaveBeenCalledTimes(flashblockOutcomes.length)
     expect(flashblockWatch).toHaveBeenCalledWith(userOpHash, 5_000)
+    // The Flashblock pre-warm existed only to serve the deleted Flashblock-sourced
+    // ttm path.
+    expect(flashblockReady).not.toHaveBeenCalled()
+
+    // preconf varies with the Flashblock outcome; ttm is the confirmed
+    // observer's timing in every case, including the one where a Flashblock was
+    // cleanly observed (record 0). That identity is what used to collapse the
+    // two stages into the same number.
     expect(result.records[0].stages.preconf).toEqual({ status: 'ok', ms: 200 })
-    expect(result.records[0].stages.canonical).toEqual({ status: 'ok', ms: 200 })
-    expect(result.records[0].canonicalObservation).toEqual({
-      api: 'newFlashblockTransactions',
-      pollCount: 0,
-    })
-    expect(result.records[0].blockPositions.canonical?.blockNumber).toBe(123n)
+    expect(result.records[0].stages.ttm).toEqual({ status: 'ok', ms: 400 })
+    expect(result.records[0].ttmObservation?.api).toBe('eth_getUserOperationReceipt')
+    expect(result.records[0].blockPositions.ttm?.blockNumber).toBe(124n)
     expect(result.records[1].stages.preconf).toEqual({ status: 'not-observed' })
-    expect(result.records[1].stages.canonical).toEqual({ status: 'ok', ms: 410 })
-    expect(result.records[1].canonicalObservation?.api).toBe('eth_getUserOperationReceipt')
+    expect(result.records[1].stages.ttm).toEqual({ status: 'ok', ms: 410 })
     expect(result.records[2].stages.preconf).toEqual({
       status: 'not-observed',
       reason: 'inclusion not neutrally attributable',
     })
-    expect(result.records[2].stages.canonical).toEqual({ status: 'ok', ms: 420 })
-    expect(result.records[2].canonicalObservation?.api).toBe('eth_getUserOperationReceipt')
+    expect(result.records[2].stages.ttm).toEqual({ status: 'ok', ms: 420 })
     expect(result.records[3].stages.preconf).toEqual({ status: 'not-observed' })
-    expect(result.records[3].stages.canonical).toEqual({ status: 'ok', ms: 430 })
-    expect(result.records[3].canonicalObservation?.api).toBe('eth_getUserOperationReceipt')
+    expect(result.records[3].stages.ttm).toEqual({ status: 'ok', ms: 430 })
+    // No modality declares an early-inclusion observer here, so no firstStatus.
+    expect(result.records.every(r => r.stages.firstStatus === undefined)).toBe(true)
+    expect(result.metrics.stages.firstStatus).toBeUndefined()
   })
 
-  it('uses confirmed inclusion when the Flashblock subscription is unavailable', async () => {
+  it('still measures preconf when the Flashblock subscription was never pre-warmed', async () => {
     const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
     const confirmedWatch = mock(async () => ({
       status: 'ok' as const,
@@ -341,35 +340,40 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
       [{ row: makeRow('alchemy-mav2-bso'), adapter }],
       { async getBlockNumber() { return 1n }, async watch() { throw new Error('fallback must not run') }, close() {} },
       {
-        async ready() { throw new Error('subscription unavailable') },
+        async ready() { throw new Error('ready() must not gate the preconf measurement') },
         watch: flashblockWatch,
         close() {},
       },
-      undefined,
-      { canonicalSource: 'earliest-signal' },
     )
 
     expect(sendSponsored).toHaveBeenCalledTimes(1)
-    expect(flashblockWatch).not.toHaveBeenCalled()
+    expect(flashblockWatch).toHaveBeenCalledWith(userOpHash, 5_000)
     expect(confirmedWatch).toHaveBeenCalledWith(userOpHash, 10_000)
     expect(result.records[0].stages.preconf).toEqual({ status: 'not-observed' })
-    expect(result.records[0].stages.canonical).toEqual({ status: 'ok', ms: 400 })
-    expect(result.records[0].canonicalObservation?.api).toBe('eth_getUserOperationReceipt')
+    expect(result.records[0].stages.ttm).toEqual({ status: 'ok', ms: 400 })
+    expect(result.records[0].ttmObservation?.api).toBe('eth_getUserOperationReceipt')
   })
 
-  it('uses the provider-native Wallet status observer for Base canonical timing', async () => {
+  it('measures preconf, firstStatus, and ttm as three separate observations', async () => {
     const userOpHash = ('0x' + '12'.repeat(32)) as `0x${string}`
     const callId = ('0x' + 'ab'.repeat(32)) as `0x${string}`
-    const confirmedWatch = mock(async () => { throw new Error('confirmed observer must not run') })
-    const earlyInclusionWatch = mock(async () => ({
-      status: 'ok' as const,
-      tMs: 700,
-      observation: {
-        api: 'wallet_getCallsStatus' as const,
-        pollCount: 2,
-        terminalStatus: '110',
+    // One staged observer, one poll stream, two results — the service must not
+    // open a second status watch.
+    const stagesWatch = mock(async () => ({
+      firstStatus: {
+        status: 'ok' as const,
+        tMs: 700,
+        observation: { api: 'wallet_getCallsStatus' as const, pollCount: 2, terminalStatus: '110' },
+      },
+      ttm: {
+        status: 'ok' as const,
+        blockNumber: 124n,
+        txHash: ('0x' + 'cd'.repeat(32)) as `0x${string}`,
+        tMs: 2_400,
+        observation: { api: 'wallet_getCallsStatus' as const, pollCount: 6, terminalStatus: '200' },
       },
     }))
+    const confirmedWatch = mock(async () => { throw new Error('canonicalObserver must not run alongside statusStagesObserver') })
     const flashblockWatch = mock(async () => ({
       status: 'ok' as const,
       blockNumber: 123n,
@@ -387,9 +391,9 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
             api: 'wallet_getCallsStatus' as const,
             watch: confirmedWatch,
           },
-          earlyInclusionObserver: {
+          statusStagesObserver: {
             api: 'wallet_getCallsStatus' as const,
-            watch: earlyInclusionWatch,
+            watch: stagesWatch,
           },
           async sendSponsored() {
             return {
@@ -410,21 +414,31 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
       [{ row: makeRow('alchemy-wallet-sendcalls', 'wallet-sendcalls'), adapter }],
       { async getBlockNumber() { return 1n }, async watch() { throw new Error('fallback must not run') }, close() {} },
       { ready: flashblockReady, watch: flashblockWatch, close() {} },
-      undefined,
-      { canonicalSource: 'earliest-signal' },
     )
 
-    expect(confirmedWatch).not.toHaveBeenCalled()
     expect(flashblockReady).not.toHaveBeenCalled()
-    expect(earlyInclusionWatch).toHaveBeenCalledWith(callId, 5_000)
+    // Exactly one status watch, given the full canonical timeout — these are
+    // status polls, not a preconfirmation window.
+    expect(stagesWatch).toHaveBeenCalledTimes(1)
+    expect(stagesWatch).toHaveBeenCalledWith(callId, 10_000)
+    expect(confirmedWatch).not.toHaveBeenCalled()
     expect(flashblockWatch).toHaveBeenCalledWith(userOpHash, 5_000)
-    expect(result.records[0].stages.preconf).toEqual({ status: 'ok', ms: 180 })
-    expect(result.records[0].stages.canonical).toEqual({ status: 'ok', ms: 200 })
-    expect(result.records[0].canonicalObservation).toEqual({
+
+    const record = result.records[0]
+    expect(record.stages.preconf).toEqual({ status: 'ok', ms: 180 })
+    expect(record.stages.firstStatus).toEqual({ status: 'ok', ms: 200 })
+    expect(record.stages.ttm).toEqual({ status: 'ok', ms: 1_900 })
+    expect(record.firstStatusObservation).toEqual({
       api: 'wallet_getCallsStatus',
       pollCount: 2,
       terminalStatus: '110',
     })
+    expect(record.ttmObservation).toEqual({
+      api: 'wallet_getCallsStatus',
+      pollCount: 6,
+      terminalStatus: '200',
+    })
+    expect(result.metrics.stages.firstStatus?.count).toBe(1)
   })
 
   it('keeps accepted timings and redacts credentials when an owned observer rejects', async () => {
@@ -476,15 +490,15 @@ describe('runBenchmarkGrid — accepted submission lifecycle', () => {
     expect(record.stages.prepare).toEqual({ status: 'ok', ms: 50 })
     expect(record.stages.send).toEqual({ status: 'ok', ms: 30 })
     expect(record.stages.submit).toEqual({ status: 'ok', ms: 80 })
-    expect(record.stages.canonical.status).toBe('observer-error')
-    expect(record.stages.canonical.reason).toContain('[REDACTED_ALCHEMY_URL]')
-    expect(record.stages.canonical.reason).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
-    expect(record.stages.canonical.reason).not.toContain(apiKey)
-    expect(record.stages.canonical.reason).not.toContain(TEST_OWNER_KEY)
+    expect(record.stages.ttm.status).toBe('observer-error')
+    expect(record.stages.ttm.reason).toContain('[REDACTED_ALCHEMY_URL]')
+    expect(record.stages.ttm.reason).toContain('[REDACTED_OWNER_PRIVATE_KEY]')
+    expect(record.stages.ttm.reason).not.toContain(apiKey)
+    expect(record.stages.ttm.reason).not.toContain(TEST_OWNER_KEY)
     expect(result.metrics.stages.prepare?.count).toBe(1)
     expect(result.metrics.stages.send?.count).toBe(1)
     expect(result.metrics.stages.submit?.count).toBe(1)
-    expect(result.metrics.stages.canonical).toBeUndefined()
+    expect(result.metrics.stages.ttm).toBeUndefined()
   })
 })
 

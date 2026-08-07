@@ -23,6 +23,12 @@ describe('buildRows', () => {
     expect(runnable.every(r => r.id.startsWith('alchemy-'))).toBe(true)
   })
 
+  it('requires the BSO policy for the Wallet SendCalls row', () => {
+    const row = buildRows(ALCHEMY_ONLY).find(r => r.id === 'alchemy-wallet-sendcalls')!
+    expect(row.runnable).toBe(false)
+    expect(row.missingEnv).toEqual(['ALCHEMY_BSO_POLICY_ID'])
+  })
+
   it('reports missing env names on non-runnable rows', () => {
     const rows = buildRows(ALCHEMY_ONLY)
     const nonRunnable = rows.filter(r => !r.runnable)

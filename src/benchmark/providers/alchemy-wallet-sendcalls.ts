@@ -4,7 +4,7 @@ import type { Chain } from 'viem'
 import { alchemyTransport } from '@alchemy/common'
 import { createSmartWalletClient, alchemyWalletTransport } from '@alchemy/wallet-apis'
 import type { Config } from '../config.js'
-import type { AccountClient, ProviderAdapter, SponsoredResult } from './types.js'
+import type { AccountClient, ProviderAdapter, SponsoredResult, StatusStages, StatusStagesObserver } from './types.js'
 import type { CanonicalObserver, CanonicalResult } from '../oracle/canonical.js'
 import { isRetryableObserverError, pollObserver } from '../oracle/polling.js'
 import { serializeErrorRedacted } from '../serialize.js'
@@ -57,11 +57,11 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
   // ensureDeployed is only attached when stableOwner is set (see constructor).
   readonly ensureDeployed?: () => Promise<void>
   readonly canonicalObserver: CanonicalObserver
-  readonly earlyInclusionObserver: CanonicalObserver
+  readonly statusStagesObserver: StatusStagesObserver
 
   constructor(
     private readonly apiKey: string,
-    private readonly policyId: string,
+    private readonly bsoPolicyId: string,
     private readonly canonicalTimeoutMs: number,
     private readonly network: string,
     private readonly createClient: ClientFactory,
@@ -82,34 +82,78 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     }
     this.canonicalObserver = {
       api: 'wallet_getCallsStatus',
-      watch: (identifier, timeoutMs) => this._watchStatus(identifier, timeoutMs, 'confirmed', ownerPrivateKey),
+      watch: async (identifier, timeoutMs) =>
+        (await this._watchStatusStages(identifier, timeoutMs, ownerPrivateKey)).ttm,
     }
-    this.earlyInclusionObserver = {
+    this.statusStagesObserver = {
       api: 'wallet_getCallsStatus',
-      watch: (identifier, timeoutMs) => this._watchStatus(identifier, timeoutMs, 'block-included', ownerPrivateKey),
+      watch: (identifier, timeoutMs) => this._watchStatusStages(identifier, timeoutMs, ownerPrivateKey),
     }
   }
 
-  private async _watchStatus(
+  // One poll stream, two stages. `ttm` resolves on 200; `firstStatus`
+  // captures whichever terminal status the stream saw first, which is 110 when
+  // it fires and otherwise that same 200 — the identical observation, not a
+  // second measurement of it.
+  private async _watchStatusStages(
     callId: `0x${string}`,
     timeoutMs: number,
-    target: 'block-included' | 'confirmed',
     ownerPrivateKey?: `0x${string}`,
-  ): Promise<CanonicalResult> {
+  ): Promise<StatusStages> {
     const request = this.injectedStatusRequest ?? this._createStatusRequest()
+
+    let early: { response: WalletCallsStatusResponse; atMs: number; pollCount: number } | undefined
     const polled = await pollObserver({
       request: () => request({ method: 'wallet_getCallsStatus', params: [callId] }),
-      // 100 is pending; other 1xx values remain pending for both targets. If a poll
-      // misses 110 and observes 200, confirmation still satisfies the earlier
-      // block-inclusion target conservatively.
-      isPending: response => response.status >= 100
-        && response.status < STATUS_CONFIRMED
-        && !(target === 'block-included' && response.status === STATUS_BLOCK_INCLUDED),
+      // 100 is pending; other 1xx values (including 110) remain pending, because
+      // ttm means mined and only 200 says that.
+      isPending: response => response.status >= 100 && response.status < STATUS_CONFIRMED,
+      // Only 110 is captured here. Any other status either keeps the loop
+      // running (1xx) or ends it (200, or a 4xx-6xx failure), and in those
+      // cases firstStatus is the loop's own result — including its failure.
+      onPoll: (response, atMs, pollCount) => {
+        if (early === undefined && response.status === STATUS_BLOCK_INCLUDED) {
+          early = { response, atMs, pollCount }
+        }
+      },
       timeoutMs,
       isRetryableError: isRetryableObserverError,
       now: this.observerNow,
       sleep: this.observerSleep,
     })
+
+    const ttm = this._resultFromPoll(polled, ownerPrivateKey)
+
+    // No 110 means the first terminal status IS whatever ended the loop, so both
+    // stages report the same observation rather than two timings of it.
+    if (early === undefined) return { firstStatus: ttm, ttm }
+
+    return { firstStatus: this._okResult(early.response, early.atMs, early.pollCount), ttm }
+  }
+
+  private _okResult(
+    response: WalletCallsStatusResponse,
+    atMs: number,
+    pollCount: number,
+  ): CanonicalResult {
+    const receipt = response.receipts?.[0]
+    return {
+      status: 'ok',
+      ...(receipt?.blockNumber != null ? { blockNumber: BigInt(receipt.blockNumber) } : {}),
+      ...(receipt?.transactionHash ? { txHash: receipt.transactionHash } : {}),
+      tMs: atMs,
+      observation: {
+        api: 'wallet_getCallsStatus' as const,
+        pollCount,
+        terminalStatus: String(response.status),
+      },
+    }
+  }
+
+  private _resultFromPoll(
+    polled: Awaited<ReturnType<typeof pollObserver<WalletCallsStatusResponse>>>,
+    ownerPrivateKey?: `0x${string}`,
+  ): CanonicalResult {
     const observation = {
       api: 'wallet_getCallsStatus' as const,
       pollCount: polled.pollCount,
@@ -132,16 +176,8 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
 
     const response = polled.value
     const terminalStatus = String(response.status)
-    if (response.status === STATUS_CONFIRMED
-      || (target === 'block-included' && response.status === STATUS_BLOCK_INCLUDED)) {
-      const receipt = response.receipts?.[0]
-      return {
-        status: 'ok',
-        ...(receipt?.blockNumber != null ? { blockNumber: BigInt(receipt.blockNumber) } : {}),
-        ...(receipt?.transactionHash ? { txHash: receipt.transactionHash } : {}),
-        tMs: polled.observedAtMs,
-        observation: { ...observation, terminalStatus },
-      }
+    if (response.status === STATUS_CONFIRMED) {
+      return this._okResult(response, polled.observedAtMs, polled.pollCount)
     }
     if (response.status >= 400 && response.status < 700) {
       return {
@@ -217,7 +253,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
       signer,
       transport: alchemyWalletTransport({ apiKey: this.apiKey }),
       chain,
-      paymaster: { policyId: this.policyId },
+      paymaster: { policyId: this.bsoPolicyId },
     })
 
     const { id: callId } = await client.sendCalls({
@@ -247,7 +283,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
       signer,
       transport: alchemyWalletTransport({ apiKey: this.apiKey }),
       chain,
-      paymaster: { policyId: this.policyId },
+      paymaster: { policyId: this.bsoPolicyId },
     })
 
     // Calling to: signer.address (the EIP-7702 smart wallet itself) with empty
@@ -262,7 +298,7 @@ class AlchemyWalletSendCallsAccountClient implements AccountClient {
     // are included for explicitness — some SDK versions may require them.
     const prepared = await client.prepareCalls({
       calls,
-      capabilities: { paymaster: { policyId: this.policyId } },
+      capabilities: { paymaster: { policyId: this.bsoPolicyId } },
     })
 
     // signPreparedCalls accepts the whole prepareCalls result and returns signed calls.
@@ -340,11 +376,14 @@ export function createAlchemyWalletSendCallsAdapter(deps?: {
     async buildAccountClient(config: Config): Promise<AccountClient> {
       const cfg = config.providers.alchemy
       if (!cfg) {
-        throw new Error('Alchemy provider not configured — set ALCHEMY_API_KEY and ALCHEMY_POLICY_ID')
+        throw new Error('Alchemy provider not configured — set ALCHEMY_API_KEY')
+      }
+      if (!cfg.bsoPolicyId) {
+        throw new Error('BSO policy not configured — set ALCHEMY_BSO_POLICY_ID')
       }
       return new AlchemyWalletSendCallsAccountClient(
         cfg.apiKey,
-        cfg.policyId,
+        cfg.bsoPolicyId,
         config.timeouts.canonicalMs,
         config.network,
         createClient,

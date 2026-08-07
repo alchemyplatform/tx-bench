@@ -4,19 +4,19 @@ import type { Chain } from 'viem'
 import { loadConfig, type Config, type EnvSource } from '../benchmark/config.js'
 import { buildRows, getRunnableRows } from '../benchmark/rows.js'
 import { createCanonicalOracle } from '../benchmark/oracle/canonical.js'
-import { createFlashblockOracle } from '../benchmark/oracle/flashblocks.js'
+import { createFlashblockOracle, notObservedFlashblockOracle } from '../benchmark/oracle/flashblocks.js'
 import { runBenchmarkGrid, type ProviderEntry, type ProviderRunResult } from '../benchmark/service.js'
-import { alchemyMAv2BSOAdapter } from '../benchmark/providers/alchemy-mav2-bso.js'
 import { alchemyWalletSendCallsAdapter } from '../benchmark/providers/alchemy-wallet-sendcalls.js'
 import type { MonitoringCredentials } from './secrets.js'
 import { MEASUREMENT_EPOCH, TERMINAL_STATUS_NONE, type MonitorMetrics } from './metrics.js'
 import { serializeErrorRedacted } from '../benchmark/serialize.js'
 import type { ProtocolClass, RunRecord } from '../benchmark/contracts.js'
 
-// Monitoring covers only these two adapters for now — MAv2 BSO (ERC-4337) and
-// Wallet SendCalls (EIP-7702) — per operator decision. Others can be added later.
-const ALCHEMY_ADAPTERS = [alchemyMAv2BSOAdapter, alchemyWalletSendCallsAdapter]
-const NO_OP_WS = (_url: string) => ({ readyState: 3, send: () => {}, close: () => {}, onopen: null, onclose: null, onerror: null, onmessage: null })
+// Monitoring covers exactly one path: the recommended config — Wallet APIs with
+// a BSO policy and defaults (EIP-7702 + MAv2). The MAv2 BSO adapter stays in the
+// codebase for CLI and public cross-provider runs, which still need a raw 4337
+// path to compare against Pimlico and ZeroDev; it is just not monitored.
+const ALCHEMY_ADAPTERS = [alchemyWalletSendCallsAdapter]
 const MONITORING_RUN_COUNT_DEFAULT = 20
 const MONITOR_INTERVAL_MS = 60 * 60 * 1000
 const STARTUP_JITTER_WINDOW_MS = 60 * 1000
@@ -109,8 +109,8 @@ function buildEnv(credentials: MonitoringCredentials, baseEnv: EnvSource): EnvSo
     ...sanitizedBaseEnv,
     ALCHEMY_API_KEY: credentials.ALCHEMY_API_KEY,
     ALCHEMY_POLICY_ID: credentials.ALCHEMY_POLICY_ID,
+    ALCHEMY_BSO_POLICY_ID: credentials.ALCHEMY_BSO_POLICY_ID,
     OWNER_PRIVATE_KEY: credentials.OWNER_PRIVATE_KEY,
-    ...(credentials.ALCHEMY_BSO_POLICY_ID && { ALCHEMY_BSO_POLICY_ID: credentials.ALCHEMY_BSO_POLICY_ID }),
     // Use a monitoring-appropriate default run count unless already set in baseEnv
     RUN_COUNT: baseEnv.RUN_COUNT ?? String(MONITORING_RUN_COUNT_DEFAULT),
   }
@@ -127,17 +127,22 @@ export function buildAdapterEntries(env: EnvSource): ProviderEntry[] {
 
 function createDefaultGridRunner(): GridRunner {
   return async (config, env) => {
+    const entries = buildAdapterEntries(env)
+    if (entries.length === 0) {
+      throw new Error(
+        'No monitored adapter is runnable — the Wallet path requires ALCHEMY_API_KEY and ALCHEMY_BSO_POLICY_ID',
+      )
+    }
     const chain = resolveChain(config.network)
     const client = createPublicClient({ chain, transport: http(config.neutral.rpcUrl) })
     const canonicalOracle = createCanonicalOracle(client)
-    const useFlashblockCanonical = config.network === BASE_MAINNET
-    if (useFlashblockCanonical && !config.neutral.flashblockWsUrl) {
+    const hasFlashblocks = config.network === BASE_MAINNET
+    if (hasFlashblocks && !config.neutral.flashblockWsUrl) {
       throw new Error('Base monitoring requires a Flashblocks WebSocket endpoint')
     }
-    const flashblockOracle = useFlashblockCanonical
+    const flashblockOracle = hasFlashblocks
       ? createFlashblockOracle(config.neutral.flashblockWsUrl!)
-      : createFlashblockOracle('wss://no-op', { ws: NO_OP_WS })
-    const entries = buildAdapterEntries(env)
+      : notObservedFlashblockOracle
 
     const region = env.REGION ?? env.AWS_REGION ?? null
 
@@ -178,7 +183,7 @@ function createDefaultGridRunner(): GridRunner {
             iteration: ev.iteration,
           }))
         }
-      }, { canonicalSource: useFlashblockCanonical ? 'earliest-signal' : 'default' })
+      })
     } finally {
       canonicalOracle.close()
       flashblockOracle.close()
@@ -197,30 +202,41 @@ function observerApiForProvider(provider: string, network: string): string {
   return 'generic-log-scan'
 }
 
+// providerReceipt is omitted for wallet-sendcalls: it was 100% not-observed in
+// every production window, so the series carried no signal.
 function expectedStages(protocolClass: ProtocolClass): Array<keyof RunRecord['stages']> {
-  const common: Array<keyof RunRecord['stages']> = ['submit', 'preconf', 'canonical', 'providerReceipt']
-  return protocolClass === 'wallet-sendcalls' ? ['prepare', 'send', ...common] : common
+  const common: Array<keyof RunRecord['stages']> = ['submit', 'preconf', 'firstStatus', 'ttm']
+  return protocolClass === 'wallet-sendcalls'
+    ? ['prepare', 'send', ...common]
+    : [...common, 'providerReceipt']
 }
 
-// terminalStatus describes what ended the *canonical* observation, so only that
-// stage gets a real value. Tagging submit/prepare/preconf with it would be
-// meaningless and would multiply those series by every observed status value.
+// terminalStatus describes what ended a *status observation*, so only the two
+// stages driven by wallet_getCallsStatus get a real value. Tagging
+// submit/prepare/preconf with it would be meaningless and would multiply those
+// series by every observed status value.
 //
-// This is what makes the wallet_getCallsStatus 110-vs-200 split visible in
-// Grafana: 110 fires only intermittently and lands ~1s behind actual Flashblock
-// inclusion, so pooling both under one series hides which signal a given
-// canonical measurement actually came from.
+// This is what makes the 110-vs-200 split visible in Grafana. `ttm` now
+// only ever ends on 200, so the informative split lives on `firstStatus`: 110
+// fires only intermittently and lands ~1s behind actual Flashblock inclusion,
+// and once the rundler dedup fix lands firstStatus should drop toward preconf.
 function terminalStatusForStage(
   record: RunRecord,
   stage: keyof RunRecord['stages'],
 ): string {
-  if (stage !== 'canonical') return TERMINAL_STATUS_NONE
-  return record.canonicalObservation?.terminalStatus ?? TERMINAL_STATUS_NONE
+  if (stage === 'ttm') return record.ttmObservation?.terminalStatus ?? TERMINAL_STATUS_NONE
+  if (stage === 'firstStatus') return record.firstStatusObservation?.terminalStatus ?? TERMINAL_STATUS_NONE
+  return TERMINAL_STATUS_NONE
 }
 
 function redactLogText(value: string | undefined, credentials: MonitoringCredentials): string | undefined {
   if (value == null) return undefined
-  return serializeErrorRedacted(value, credentials.OWNER_PRIVATE_KEY, [credentials.ALCHEMY_API_KEY]).message
+  return serializeErrorRedacted(
+    value,
+    credentials.OWNER_PRIVATE_KEY,
+    [credentials.ALCHEMY_API_KEY],
+    [credentials.ALCHEMY_POLICY_ID, credentials.ALCHEMY_BSO_POLICY_ID],
+  ).message
 }
 
 function logRunResults(
@@ -248,7 +264,7 @@ function logRunResults(
     }))
 
     for (const rec of records) {
-      const observerApi = rec.canonicalObservation?.api ?? observerApiForProvider(row.id, network)
+      const observerApi = rec.ttmObservation?.api ?? observerApiForProvider(row.id, network)
       const attemptStages = Object.fromEntries(expectedStages(rec.protocolClass).map((stage) => {
         const value = rec.stages[stage] ?? { status: 'not-observed' as const }
         return [stage, {
@@ -267,9 +283,9 @@ function logRunResults(
         run_index: rec.runIndex,
         accepted_at_ms: rec.acceptedAtMs ?? null,
         observer_api: observerApi,
-        poll_count: rec.canonicalObservation?.pollCount ?? 0,
-        terminal_status: rec.canonicalObservation?.terminalStatus ?? null,
-        error_class: rec.canonicalObservation?.errorClass ?? null,
+        poll_count: rec.ttmObservation?.pollCount ?? 0,
+        terminal_status: rec.ttmObservation?.terminalStatus ?? null,
+        error_class: rec.ttmObservation?.errorClass ?? null,
         stages: attemptStages,
       }))
 
@@ -299,7 +315,7 @@ function emitRunMetrics(results: ProviderRunResult[], metrics: MonitorMetrics, n
   for (const { records, metrics: pm } of results) {
     const recordsByObserver = new Map<string, RunRecord[]>()
     for (const record of records) {
-      const observerApi = record.canonicalObservation?.api
+      const observerApi = record.ttmObservation?.api
         ?? observerApiForProvider(pm.provider, network)
       const observerRecords = recordsByObserver.get(observerApi) ?? []
       observerRecords.push(record)

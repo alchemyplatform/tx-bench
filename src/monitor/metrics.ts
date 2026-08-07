@@ -1,6 +1,6 @@
 import { Counter, Gauge, Histogram, Registry } from 'prom-client'
 
-export const MEASUREMENT_EPOCH = 'base-flashblocks-v3'
+export const MEASUREMENT_EPOCH = 'wallet-bso-v1'
 
 const SUMMARY_LABELS = [
   'protocol_class', 'provider_id', 'observer_api', 'measurement_epoch', 'network', 'region',
@@ -8,9 +8,10 @@ const SUMMARY_LABELS = [
 const LATENCY_LABELS = [...SUMMARY_LABELS, 'stage', 'terminal_status'] as const
 const OUTCOME_LABELS = [...SUMMARY_LABELS, 'stage', 'outcome', 'terminal_status'] as const
 
-// Sentinel for stages that have no terminal status to report. Only the canonical
-// stage carries a real value (see terminalStatusForStage in loop.ts), so every
-// other stage collapses onto this single value instead of multiplying series.
+// Sentinel for stages that have no terminal status to report. Only the
+// status-driven stages — ttm and firstStatus — carry a real value (see
+// terminalStatusForStage in loop.ts), so every other stage collapses onto this
+// single value instead of multiplying series.
 export const TERMINAL_STATUS_NONE = 'none'
 
 export type SummaryLabels = {
@@ -23,7 +24,7 @@ export type SummaryLabels = {
 }
 export type LatencyLabels = SummaryLabels & { stage: string; terminal_status: string }
 
-// Per-attempt latency buckets in seconds. Dense boundaries around the canonical
+// Per-attempt latency buckets in seconds. Dense boundaries around the time-to-mine
 // SLO range (1–8s) keep p95 and CDF estimates useful while the full 5ms–120s
 // span covers every stage carried by this shared histogram.
 export const LATENCY_BUCKETS_SECONDS = [
@@ -36,8 +37,9 @@ export const LATENCY_BUCKETS_SECONDS = [
 export type MonitorMetrics = {
   // Per-attempt latency histogram. Pool across runs with:
   //   histogram_quantile(0.95, sum by (le) (rate(..._bucket[$window])))
-  // Carries terminal_status so the canonical stage can be split by which signal
-  // ended the observation (e.g. wallet_getCallsStatus 110 vs 200).
+  // Carries terminal_status so the status-driven stages can be split by which
+  // signal ended the observation (e.g. wallet_getCallsStatus 110 vs 200). ttm is
+  // 200-only by definition, so the informative split lives on firstStatus.
   stageLatency: Histogram<string>
   // Cumulative benchmark attempts (successful + failed).
   attemptsTotal: Counter<string>

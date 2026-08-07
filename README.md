@@ -2,7 +2,7 @@
 
 Provider-neutral benchmarks for measuring blockchain transaction submission, preconfirmation, and inclusion latency.
 
-The current v1 benchmark measures each stage of the Base mainnet userOp lifecycle independently (submit/accept, flashblock preconfirmation, canonical inclusion) using a **provider-independent neutral oracle** so the timing of every provider is measured identically — never by polling that provider's own receipt API.
+The current v1 benchmark measures each stage of the Base mainnet userOp lifecycle independently (submit/accept, flashblock preconfirmation, time to mine) using a **provider-independent neutral oracle** so the timing of every provider is measured identically — never by polling that provider's own receipt API.
 
 Designed to produce fair, reproducible, per-stage numbers across Alchemy (Light Account v2, Modular Account v2, EIP-7702 wallet_sendCalls), Pimlico (Safe), and ZeroDev (Kernel + UltraRelay), while leaving room for additional networks and write-path types.
 
@@ -12,7 +12,7 @@ Designed to produce fair, reproducible, per-stage numbers across Alchemy (Light 
 
 - **Neutral oracle, not provider receipt timing.** Canonical inclusion is detected by watching `UserOperationEvent` on an independent Base node. Flashblock preconfirmation is detected via a separate, non-contestant `eth_subscribe("newFlashblockTransactions")` endpoint. No provider's own `getUserOperationReceipt` is used for timing.
 - **Block position as primary finish line.** The headline metric is which (flash)block a userOp first appears in — immune to runner-side transit skew and independently verifiable on a block explorer. Wall-clock arrival is a secondary intra-block tiebreaker only.
-- **Per-stage decomposition, not a single headline.** Every run reports submit/accept lag, flashblock preconf, canonical inclusion, and provider receipt availability as separate stages with explicit statuses (`ok | failed | timed-out | not-observed`).
+- **Per-stage decomposition, not a single headline.** Every run reports submit/accept lag, flashblock preconf, time to mine, and provider receipt availability as separate stages with explicit statuses (`ok | failed | timed-out | not-observed`).
 - **N runs, median/p95.** Single-sample mainnet numbers are not defensible. Each provider runs N times; output reports per-stage median and p95.
 - **UltraRelay in a separate exhibit.** ZeroDev's UltraRelay is an ERC-7683 intent relay — a different protocol class with a different finish line. It is never averaged with 4337 bundler results.
 
@@ -47,7 +47,7 @@ cp .env.example .env
 | Alchemy (Light Account v2)         | `ALCHEMY_API_KEY`, `ALCHEMY_POLICY_ID` |
 | Alchemy (Modular Account v2)       | `ALCHEMY_API_KEY`, `ALCHEMY_POLICY_ID` |
 | Alchemy (MAv2 BSO)                 | `ALCHEMY_API_KEY`, `ALCHEMY_BSO_POLICY_ID` |
-| Alchemy (Wallet SendCalls, EIP-7702) | `ALCHEMY_API_KEY`, `ALCHEMY_POLICY_ID` |
+| Alchemy (Wallet SendCalls, EIP-7702) | `ALCHEMY_API_KEY`, `ALCHEMY_BSO_POLICY_ID` |
 | Pimlico (Safe)                     | `PIMLICO_API_KEY`, `PIMLICO_POLICY_ID` |
 | ZeroDev (Kernel / UltraRelay)      | `ZERODEV_API_KEY`, `ZERODEV_PROJECT_ID` |
 
@@ -55,9 +55,11 @@ Plus `OWNER_PRIVATE_KEY` (required for the monitor; enables stable deterministic
 
 > **Neutral oracle (Alchemy-only monitoring):** when `NEUTRAL_RPC_URL` is unset, the canonical oracle defaults to the Alchemy chain-specific URL (`https://<NETWORK>.g.alchemy.com/v2/<API key>`). This is allowed because all monitor adapters are Alchemy, so no contestant is disadvantaged (the preflight emits a warning, not an error). Set `NEUTRAL_RPC_URL` to a truly independent node ONLY for mixed-provider runs (Alchemy + Pimlico/ZeroDev) where neutrality is required for fair cross-provider timing.
 >
-> **Base monitor finish line:** for `base-mainnet`, the recurring Alchemy monitor prefers each modality's earliest authoritative signal for the historical `canonical` stage. MAv2 BSO uses the first matching `newFlashblockTransactions` event and falls back to confirmed `eth_getUserOperationReceipt` inclusion when that event is unavailable; Wallet SendCalls uses `wallet_getCallsStatus` code `110`, with code `200` as its fallback. Other networks retain their confirmed status observers, and interactive CLI benchmarks continue to report Flashblock preconfirmation and confirmed inclusion separately. Metrics label the actual source per attempt and use measurement epoch `base-flashblocks-v3` so dashboards can separate the definitions.
+> **Monitoring runs one path, with three stages.** The recurring monitor runs only Wallet APIs with a BSO policy and defaults (EIP-7702 + MAv2), and emits three latency stages that never mean two different things: `preconf` (the neutral `newFlashblockTransactions` measurement, Base-only), `ttm` (`wallet_getCallsStatus` **200 only** — actually mined — on every network), and `firstStatus` (the first terminal status, `110` **or** `200`, split by the `terminal_status` label). Measurement epoch `wallet-bso-v1`. The MAv2 BSO adapter is no longer monitored but remains in the codebase for CLI and public cross-provider runs.
 >
-> **`canonical` is not comparable across modalities on Base — use `preconf`.** Measured live on 2026-08-06 (`scripts/wallet-status-110-probe.ts`): `wallet_getCallsStatus` code `110` is *not* a Flashblock-speed signal despite the name. It fires only intermittently (1 of 7 clean attempts) and, when it does, trails actual Flashblock inclusion by ~0.7–1.4s — its payload carries a real `blockHash` one block past `pendingBundle.sentAtBlock`, so it denotes early *block* inclusion, not sub-block preconfirmation. Whether an attempt terminates on `110` or `200`, Wallet SendCalls `canonical` lands at block-level latency (~1.7s median), while MAv2 BSO `canonical` is the Flashblock signal (~0.2s) — and for BSO it is literally the same measurement as `preconf`, copied. Comparing the two `canonical` series is apples-to-oranges. The **`preconf` stage is the neutral cross-modality comparison**: measured identically for every provider by the same non-contestant Flashblocks oracle (BSO p50 218ms vs Wallet p50 208ms in us-east-1). The `terminal_status` metric label splits `canonical` by which signal ended the observation (`110`, `200`, `success`, `failure`, or `none`); it is populated for the `canonical` stage only, so other stages stay pooled under `none`.
+> **Use `preconf` for cross-provider claims.** It is measured identically for every provider by the same non-contestant Flashblocks oracle — same oracle, code path, and clock. Before the `wallet-bso-v1` epoch this stage was called `canonical`, and on `base-mainnet` it meant two different things: for MAv2 BSO it was the Flashblock signal copied verbatim, making it identical to that row's own `preconf` (~0.2s), while for Wallet SendCalls it was a `wallet_getCallsStatus` poll landing at block level (~1.7s). Read side by side, those columns suggested Wallet was ~4x slower. It is not: measured neutrally the two are within ~10ms (BSO p50 218ms vs Wallet p50 208ms, us-east-1). That branch is deleted.
+>
+> **`wallet_getCallsStatus` code `110` is not a Flashblock-speed signal**, despite the name. Measured live on 2026-08-06 (`scripts/wallet-status-110-probe.ts`): it fires only intermittently (1 of 7 clean attempts) and, when it does, trails actual Flashblock inclusion by ~0.7–1.4s — its payload carries a real `blockHash` one block past `pendingBundle.sentAtBlock`, so it denotes early *block* inclusion, not sub-block preconfirmation. The cause is that rundler dedups flashblocks on `header.hash`, which is always 0 for the pending block. This is why `firstStatus` exists as its own stage rather than being folded into `preconf`, and why `ttm` waits for `200`. Both stages come from a single `wallet_getCallsStatus` poll stream, so on attempts where no `110` arrives they report the identical observation rather than two timings of it — two independent pollers disagreed about the same `200` by up to one 250ms poll interval, sometimes placing `firstStatus` after `canonical`. The `terminal_status` label is populated for `firstStatus` and `ttm` only; other stages stay pooled under `none`.
 >
 > **RPC routing:** `NEUTRAL_RPC_URL` is used exclusively by the canonical oracle (`getLogs`, `getBlockNumber`) — neutrality matters there. Provider-specific pre-flight reads (nonce lookups, contract code fetches) are routed separately: Pimlico reads use the Alchemy RPC (Pimlico's bundler URL does not support `eth_call`), and ZeroDev reads use ZeroDev's own RPC (it is a full node).
 
@@ -111,7 +113,7 @@ CLI
       └─ sendSponsored()     adapter: build fresh account, submit userOp → hash
       │    ├─ Alchemy LAv2 / MAv2       reads → Alchemy RPC
       │    ├─ Alchemy MAv2 BSO          reads → Alchemy RPC; bundler carries x-alchemy-policy-id header
-      │    ├─ Alchemy Wallet SendCalls  wallet_sendCalls → waitForCallsStatus (inline canonical)
+      │    ├─ Alchemy Wallet SendCalls  wallet_sendCalls → waitForCallsStatus (inline ttm)
       │    ├─ Pimlico                   reads → Alchemy RPC (bundler URL does not support eth_call)
       │    └─ ZeroDev                   reads → ZeroDev RPC (full node)
       └─ canonicalOracle.watch()   neutral getLogs poll → UserOperationEvent (skipped for wallet-sendcalls)

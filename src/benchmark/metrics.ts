@@ -73,8 +73,10 @@ export type RunInput =
       accountTypeLabel: string
       sponsored: SponsoredResult
       acceptedAtMs: number   // performance.now() when userOpHash was received
-      canonical: CanonicalResult
+      ttm: CanonicalResult
       preconf: FlashblockResult
+      // Absent for modalities without an early-inclusion observer.
+      firstStatus?: CanonicalResult
       providerReceiptMs?: number  // wall-clock from acceptance to provider receipt arrival
       gas?: GasInput
       runIndex: number
@@ -100,7 +102,7 @@ export function buildRunRecord(input: RunInput): RunRecord {
       stages: {
         submit: makeStage('failed', undefined, input.error),
         preconf: makeStage('not-observed'),
-        canonical: makeStage('not-observed'),
+        ttm: makeStage('not-observed'),
         providerReceipt: makeStage('not-observed'),
       },
       blockPositions: {},
@@ -108,11 +110,12 @@ export function buildRunRecord(input: RunInput): RunRecord {
     }
   }
 
-  const { provider, accountTypeLabel, sponsored, acceptedAtMs, canonical, preconf, providerReceiptMs, gas, runIndex } = input
+  const { provider, accountTypeLabel, sponsored, acceptedAtMs, ttm, preconf, firstStatus, providerReceiptMs, gas, runIndex } = input
   const submitMs = sponsored.submitMs
 
   const preconfStage = stageFromFlashblock(preconf, acceptedAtMs)
-  const canonicalStage = stageFromCanonical(canonical, acceptedAtMs)
+  const ttmStage = stageFromCanonical(ttm, acceptedAtMs)
+  const firstStatusStage = firstStatus ? stageFromCanonical(firstStatus, acceptedAtMs) : undefined
 
   const providerReceiptStage: Stage =
     providerReceiptMs != null
@@ -128,10 +131,10 @@ export function buildRunRecord(input: RunInput): RunRecord {
     }
   }
 
-  if (canonical.status === 'ok' && canonical.blockNumber != null) {
-    blockPositions.canonical = {
-      blockNumber: canonical.blockNumber,
-      ...(canonical.txHash ? { txHash: canonical.txHash } : {}),
+  if (ttm.status === 'ok' && ttm.blockNumber != null) {
+    blockPositions.ttm = {
+      blockNumber: ttm.blockNumber,
+      ...(ttm.txHash ? { txHash: ttm.txHash } : {}),
     }
   }
 
@@ -150,13 +153,15 @@ export function buildRunRecord(input: RunInput): RunRecord {
     stages: {
       submit: makeStage('ok', submitMs),
       preconf: preconfStage,
-      canonical: canonicalStage,
+      ttm: ttmStage,
       providerReceipt: providerReceiptStage,
+      ...(firstStatusStage ? { firstStatus: firstStatusStage } : {}),
       ...(sponsored.prepareMs != null ? { prepare: makeStage('ok', sponsored.prepareMs) } : {}),
       ...(sponsored.sendMs != null ? { send: makeStage('ok', sponsored.sendMs) } : {}),
     },
     blockPositions,
-    ...(canonical.observation ? { canonicalObservation: canonical.observation } : {}),
+    ...(ttm.observation ? { ttmObservation: ttm.observation } : {}),
+    ...(firstStatus?.observation ? { firstStatusObservation: firstStatus.observation } : {}),
     ...(gas
       ? {
           gas: {

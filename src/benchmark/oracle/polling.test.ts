@@ -71,3 +71,38 @@ describe('isRetryableObserverError — fallback narrowing', () => {
     expect(isRetryableObserverError(null)).toBe(false)
   })
 })
+
+describe('pollObserver — onPoll', () => {
+  it('reports every polled value with the same timestamp the result uses', async () => {
+    let clock = 0
+    const values = [{ n: 1 }, { n: 2 }, { n: 3 }]
+    const seen: Array<{ n: number; atMs: number; pollCount: number }> = []
+
+    const result = await pollObserver({
+      request: async () => { clock += 10; return values.shift()! },
+      isPending: v => v.n < 3,
+      onPoll: (v, atMs, pollCount) => { seen.push({ n: v.n, atMs, pollCount }) },
+      timeoutMs: 10_000,
+      now: () => clock,
+      sleep: async () => { clock += 250 },
+    })
+
+    expect(seen.map(s => s.n)).toEqual([1, 2, 3])
+    expect(seen.map(s => s.pollCount)).toEqual([1, 2, 3])
+    // The terminal poll's onPoll timestamp is the very one reported as
+    // observedAtMs — an intermediate signal is on the same clock as the result.
+    expect(result.kind).toBe('value')
+    if (result.kind !== 'value') throw new Error('expected a value')
+    expect(seen[2]!.atMs).toBe(result.observedAtMs)
+  })
+
+  it('is optional — polling works without it', async () => {
+    const result = await pollObserver({
+      request: async () => ({ done: true }),
+      isPending: () => false,
+      timeoutMs: 1_000,
+      now: () => 0,
+    })
+    expect(result.kind).toBe('value')
+  })
+})

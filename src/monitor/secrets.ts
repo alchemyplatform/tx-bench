@@ -7,7 +7,9 @@ export type MonitoringCredentials = {
   ALCHEMY_API_KEY: string
   ALCHEMY_POLICY_ID: string
   OWNER_PRIVATE_KEY: `0x${string}`
-  ALCHEMY_BSO_POLICY_ID?: string
+  // The monitored Wallet path sponsors via a BSO policy, so a secret without
+  // this key cannot run anything — fail at load rather than at the first send.
+  ALCHEMY_BSO_POLICY_ID: string
   // Legacy fields remain in the input type for rollout compatibility but are
   // ignored by the monitor. Internal measurement endpoints are always derived
   // from ALCHEMY_API_KEY.
@@ -29,7 +31,7 @@ export async function loadMonitoringCredentials(
 
   const obj = raw as Record<string, unknown>
 
-  for (const key of ['ALCHEMY_API_KEY', 'ALCHEMY_POLICY_ID', 'OWNER_PRIVATE_KEY'] as const) {
+  for (const key of ['ALCHEMY_API_KEY', 'ALCHEMY_POLICY_ID', 'ALCHEMY_BSO_POLICY_ID', 'OWNER_PRIVATE_KEY'] as const) {
     if (typeof obj[key] !== 'string' || !obj[key]) {
       throw new Error(`Secret ${SECRET_NAME}: missing required key "${key}"`)
     }
@@ -45,7 +47,7 @@ export async function loadMonitoringCredentials(
   return {
     ALCHEMY_API_KEY: obj['ALCHEMY_API_KEY'] as string,
     ALCHEMY_POLICY_ID: obj['ALCHEMY_POLICY_ID'] as string,
+    ALCHEMY_BSO_POLICY_ID: obj['ALCHEMY_BSO_POLICY_ID'] as string,
     OWNER_PRIVATE_KEY: ownerPrivateKey as `0x${string}`,
-    ...(typeof obj['ALCHEMY_BSO_POLICY_ID'] === 'string' && { ALCHEMY_BSO_POLICY_ID: obj['ALCHEMY_BSO_POLICY_ID'] }),
   }
 }

@@ -169,7 +169,7 @@ describe('runPreflight — flashblock probe', () => {
     expect(result.warnings.length).toBeGreaterThan(0)
   })
 
-  it('warns and proceeds in canonical-only mode when no WS URL is configured', async () => {
+  it('warns that preconfirmation timing is unavailable when no WS URL is configured', async () => {
     const result = await runPreflight(BASE_CONFIG, [ALCHEMY_ROW], {
       probeChainId: sameChainId,
       probeFlashblock: async () => false,
@@ -177,6 +177,6 @@ describe('runPreflight — flashblock probe', () => {
 
     expect(result.ok).toBe(true)
     expect(result.flashblockAvailable).toBe(false)
-    expect(result.warnings.some(w => w.includes('canonical-only'))).toBe(true)
+    expect(result.warnings.some(w => w.includes('NEUTRAL_FLASHBLOCK_WS_URL not set'))).toBe(true)
   })
 })

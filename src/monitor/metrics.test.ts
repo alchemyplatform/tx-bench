@@ -42,7 +42,7 @@ describe('buildMetrics', () => {
     expect(Math.max(...fromFourToEight.slice(1).map((bound, index) => bound - fromFourToEight[index]!))).toBeLessThanOrEqual(0.5)
   })
 
-  it('brackets the exact p95 of a known canonical distribution', () => {
+  it('brackets the exact p95 of a known ttm distribution', () => {
     const values = [
       1.05, 1.2, 1.35, 1.5, 1.65, 1.8, 1.95, 2.1, 2.25, 2.4,
       2.55, 2.7, 2.85, 3, 3.15, 3.3, 3.45, 3.62, 3.8, 4.1,
@@ -78,13 +78,13 @@ describe('buildMetrics', () => {
     )
   })
 
-  it('splits canonical latency series by terminal_status', async () => {
+  it('splits ttm latency series by terminal_status', async () => {
     const registry = new Registry()
     const { stageLatency } = buildMetrics(registry)
     const base = {
       protocol_class: 'wallet-sendcalls',
       provider_id: 'alchemy-wallet-sendcalls',
-      stage: 'canonical',
+      stage: 'ttm',
       observer_api: 'wallet_getCallsStatus',
       measurement_epoch: MEASUREMENT_EPOCH,
       network: 'base-mainnet',
@@ -101,7 +101,7 @@ describe('buildMetrics', () => {
     for (const c of counts) expect(c.value).toBe(1)
   })
 
-  it('non-canonical stages collapse onto the sentinel so they do not multiply series', async () => {
+  it('non-ttm stages collapse onto the sentinel so they do not multiply series', async () => {
     const registry = new Registry()
     const { stageLatency } = buildMetrics(registry)
     const base = {
@@ -133,7 +133,7 @@ describe('buildMetrics', () => {
       provider_id: 'alchemy-light-account',
       stage: 'submit',
       observer_api: 'eth_getUserOperationReceipt',
-      measurement_epoch: 'base-flashblocks-v3',
+      measurement_epoch: MEASUREMENT_EPOCH,
       network: 'base-mainnet',
       region: 'us-east-1',
     }
@@ -152,9 +152,9 @@ describe('buildMetrics', () => {
     const labels = {
       protocol_class: '4337-bundler',
       provider_id: 'alchemy-light-account',
-      stage: 'canonical',
+      stage: 'ttm',
       observer_api: 'eth_getUserOperationReceipt',
-      measurement_epoch: 'base-flashblocks-v3',
+      measurement_epoch: MEASUREMENT_EPOCH,
       network: 'base-mainnet',
       region: 'us-east-1',
     }
@@ -174,7 +174,7 @@ describe('buildMetrics', () => {
     const labels = {
       protocol_class: '4337-bundler',
       provider_id: 'alchemy-light-account',
-      stage: 'canonical',
+      stage: 'ttm',
       observer_api: 'eth_getUserOperationReceipt',
       measurement_epoch: 'alchemy-status-v2',
       network: 'base-mainnet',

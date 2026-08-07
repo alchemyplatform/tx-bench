@@ -139,3 +139,33 @@ describe('serializeError (unredacted, regression)', () => {
     expect(result.message).toContain(OWNER_KEY)
   })
 })
+
+describe('serializeErrorRedacted — policy IDs', () => {
+  const POLICY = '3f6a0fd3-c190-4c02-8daa-a18d9e26b216'
+
+  // A sponsorship failure echoes the whole request body back, policy ID
+  // included. Observed live on opt-mainnet: "Policy ID(s) not found ...[<id>]".
+  it('redacts a policy ID echoed back in a sponsorship failure', () => {
+    const err = new Error(
+      `Sponsorship failed: Policy ID(s) not found ...[${POLICY}] ` +
+      `body: {"capabilities":{"paymasterService":{"policyId":"${POLICY}"}}}`,
+    )
+    const out = serializeErrorRedacted(err, undefined, [], [POLICY])
+    expect(out.message).not.toContain(POLICY)
+    expect(out.message).toContain('[REDACTED_POLICY_ID]')
+  })
+
+  it('redacts every configured policy, regular and BSO alike', () => {
+    const bso = '11111111-2222-3333-4444-555555555555'
+    const out = serializeErrorRedacted(
+      new Error(`tried ${POLICY} then ${bso}`), undefined, [], [POLICY, bso],
+    )
+    expect(out.message).not.toContain(POLICY)
+    expect(out.message).not.toContain(bso)
+  })
+
+  it('ignores short fixture values that would corrupt unrelated text', () => {
+    const out = serializeErrorRedacted(new Error('policy rejected'), undefined, [], ['policy'])
+    expect(out.message).toBe('policy rejected')
+  })
+})

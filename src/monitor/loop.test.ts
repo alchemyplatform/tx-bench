@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test'
 import { Registry } from 'prom-client'
-import { buildMetrics } from './metrics'
+import { buildMetrics, MEASUREMENT_EPOCH } from './metrics'
 import { runOnce, buildAdapterEntries, computeRegionalStartDelayMs, startLoop } from './loop'
 import type { MonitoringCredentials } from './secrets'
 import type { ProviderRunResult } from '../benchmark/service'
@@ -12,6 +12,7 @@ import type { RunRecord, Stage } from '../benchmark/contracts'
 const CREDENTIALS: MonitoringCredentials = {
   ALCHEMY_API_KEY: 'test-key',
   ALCHEMY_POLICY_ID: 'test-policy',
+  ALCHEMY_BSO_POLICY_ID: 'test-bso-policy',
   OWNER_PRIVATE_KEY: ('0x' + 'aa'.repeat(32)) as `0x${string}`,
 }
 
@@ -47,8 +48,9 @@ function makeRecord(
     stages: {
       submit: stageMs.submit != null ? mk(stageMs.submit) : notObserved,
       preconf: stageMs.preconf != null ? mk(stageMs.preconf) : notObserved,
-      canonical: stageMs.canonical != null ? mk(stageMs.canonical) : notObserved,
+      ttm: stageMs.ttm != null ? mk(stageMs.ttm) : notObserved,
       providerReceipt: stageMs.providerReceipt != null ? mk(stageMs.providerReceipt) : notObserved,
+      ...(stageMs.firstStatus != null && { firstStatus: mk(stageMs.firstStatus) }),
       ...(stageMs.prepare != null && { prepare: mk(stageMs.prepare) }),
       ...(stageMs.send != null && { send: mk(stageMs.send) }),
     },
@@ -75,7 +77,7 @@ function makeFailedRecord(
     stages: {
       submit: { status: 'failed', reason: 'bundler offline' },
       preconf: notObserved,
-      canonical: notObserved,
+      ttm: notObserved,
       providerReceipt: notObserved,
     },
     blockPositions: {},
@@ -109,7 +111,7 @@ function makeProviderResult(
       // `pm.stages` is only consumed by logRunResults now; emitRunMetrics reads
       // records directly. Keep it empty/undefined to prove emitRunMetrics does not
       // depend on pre-aggregated stage metrics.
-      stages: { submit: undefined, preconf: undefined, canonical: undefined, providerReceipt: undefined },
+      stages: { submit: undefined, preconf: undefined, ttm: undefined, providerReceipt: undefined },
     },
   }
 }
@@ -124,8 +126,8 @@ describe('runOnce', () => {
   it('observes per-attempt stage latencies into the histogram with correct labels', async () => {
     const metrics = makeMetrics()
     const records = [
-      makeRecord('alchemy-light-account', '4337-bundler', { submit: 100, canonical: 2000 }, 0),
-      makeRecord('alchemy-light-account', '4337-bundler', { submit: 150, canonical: 2100 }, 1),
+      makeRecord('alchemy-light-account', '4337-bundler', { submit: 100, ttm: 2000 }, 0),
+      makeRecord('alchemy-light-account', '4337-bundler', { submit: 150, ttm: 2100 }, 1),
     ]
     const results = [makeProviderResult('alchemy-light-account', '4337-bundler', records, 0)]
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
@@ -146,20 +148,23 @@ describe('runOnce', () => {
 
     const canonicalSum = agg.values.find(v =>
       v.metricName === 'txe_bench_stage_latency_seconds_sum' &&
-      v.labels['stage'] === 'canonical',
+      v.labels['stage'] === 'ttm',
     )
     expect(canonicalSum?.value).toBeCloseTo(4.1, 6)
   })
 
-  it('splits canonical series by terminal_status while leaving other stages on the sentinel', async () => {
+  it('splits firstStatus by terminal_status, keeps ttm on 200, and leaves other stages on the sentinel', async () => {
     const metrics = makeMetrics()
-    // Two wallet attempts that reached canonical via different terminal signals:
-    // one on 110 (intermittent, ~1.2s) and one on 200 (~1.65s). Both also record
-    // a preconf from the neutral Flashblock oracle at ~0.2s.
-    const on110 = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 250, preconf: 208, canonical: 1243 }, 0)
-    on110.canonicalObservation = { api: 'wallet_getCallsStatus', pollCount: 6, terminalStatus: '110' }
-    const on200 = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 250, preconf: 212, canonical: 1650 }, 1)
-    on200.canonicalObservation = { api: 'wallet_getCallsStatus', pollCount: 8, terminalStatus: '200' }
+    // Two wallet attempts. Both mine (ttm 200 at ~1.65s) and both record a
+    // preconf from the neutral Flashblock oracle at ~0.2s. They differ in which
+    // status arrived first: one saw the intermittent 110 at ~1.24s, the other
+    // never did and its firstStatus is the same 200 that ended ttm.
+    const on110 = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 250, preconf: 208, firstStatus: 1243, ttm: 1650 }, 0)
+    on110.firstStatusObservation = { api: 'wallet_getCallsStatus', pollCount: 6, terminalStatus: '110' }
+    on110.ttmObservation = { api: 'wallet_getCallsStatus', pollCount: 8, terminalStatus: '200' }
+    const on200 = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 250, preconf: 212, firstStatus: 1655, ttm: 1655 }, 1)
+    on200.firstStatusObservation = { api: 'wallet_getCallsStatus', pollCount: 8, terminalStatus: '200' }
+    on200.ttmObservation = { api: 'wallet_getCallsStatus', pollCount: 8, terminalStatus: '200' }
 
     const results = [makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', [on110, on200], 0)]
     await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
@@ -168,15 +173,23 @@ describe('runOnce', () => {
       v => v.metricName === 'txe_bench_stage_latency_seconds_count',
     )
 
-    const canonical = counts.filter(v => v.labels['stage'] === 'canonical')
-    expect(canonical.map(v => v.labels['terminal_status']).sort()).toEqual(['110', '200'])
-    for (const c of canonical) expect(c.value).toBe(1)
+    // This is the split the rundler fix will move: as 110 starts firing
+    // reliably, weight shifts from the 200 series to the 110 series.
+    const firstStatus = counts.filter(v => v.labels['stage'] === 'firstStatus')
+    expect(firstStatus.map(v => v.labels['terminal_status']).sort()).toEqual(['110', '200'])
+    for (const s of firstStatus) expect(s.value).toBe(1)
 
-    const canonical110Sum = (await metrics.stageLatency.get()).values.find(
+    const firstStatus110Sum = (await metrics.stageLatency.get()).values.find(
       v => v.metricName === 'txe_bench_stage_latency_seconds_sum' &&
-        v.labels['stage'] === 'canonical' && v.labels['terminal_status'] === '110',
+        v.labels['stage'] === 'firstStatus' && v.labels['terminal_status'] === '110',
     )
-    expect(canonical110Sum?.value).toBeCloseTo(1.243, 6)
+    expect(firstStatus110Sum?.value).toBeCloseTo(1.243, 6)
+
+    // ttm means mined, so it pools into a single 200 series.
+    const ttm = counts.filter(v => v.labels['stage'] === 'ttm')
+    expect(ttm).toHaveLength(1)
+    expect(ttm[0]!.labels['terminal_status']).toBe('200')
+    expect(ttm[0]!.value).toBe(2)
 
     // preconf and submit stay pooled: both attempts land in one series each, so
     // adding the label did not fragment the stages it does not describe.
@@ -186,6 +199,24 @@ describe('runOnce', () => {
       expect(series[0]!.labels['terminal_status']).toBe('none')
       expect(series[0]!.value).toBe(2)
     }
+  })
+
+  it('emits no providerReceipt series for the wallet path, but keeps it for 4337', async () => {
+    const metrics = makeMetrics()
+    const wallet = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 250, ttm: 1650 }, 0)
+    const bso = makeRecord('alchemy-mav2-bso', '4337-bundler', { submit: 100, ttm: 2000 }, 0)
+    const results = [
+      makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', [wallet], 0),
+      makeProviderResult('alchemy-mav2-bso', '4337-bundler', [bso], 0),
+    ]
+    await runOnce(CREDENTIALS, metrics, REGION, { gridRunner: mockGridRunner(results) as never, baseEnv: BASE_ENV })
+
+    // providerReceipt was 100% not-observed for wallet-sendcalls in production,
+    // so the stage is dropped there rather than emitting a series of pure noise.
+    const outcomes = (await metrics.stageOutcomesTotal.get()).values
+      .filter(v => v.labels['stage'] === 'providerReceipt')
+      .map(v => v.labels['provider_id'])
+    expect(outcomes).toEqual(['alchemy-mav2-bso'])
   })
 
   it('increments attempts and failures counters cumulatively', async () => {
@@ -236,7 +267,7 @@ describe('runOnce', () => {
   it('excludes failed/errored attempts from the histogram but counts them in failures', async () => {
     const metrics = makeMetrics()
     const records = [
-      makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 80, canonical: 1500 }, 0),
+      makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 80, ttm: 1500 }, 0),
       makeFailedRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', 1), // errored
       // submit status not ok without an error string:
       (() => {
@@ -246,7 +277,7 @@ describe('runOnce', () => {
           stages: {
             submit: { status: 'timed-out', reason: 'timeout' },
             preconf: notObserved,
-            canonical: notObserved,
+            ttm: notObserved,
             providerReceipt: notObserved,
           },
         } as RunRecord
@@ -268,7 +299,7 @@ describe('runOnce', () => {
     expect(a?.value).toBe(3)
   })
 
-  it('keeps successful stage latencies when canonical observation fails later', async () => {
+  it('keeps successful stage latencies when ttm observation fails later', async () => {
     const metrics = makeMetrics()
     const record = makeRecord(
       'alchemy-wallet-sendcalls',
@@ -276,9 +307,9 @@ describe('runOnce', () => {
       { prepare: 30, send: 50, submit: 80 },
       0,
     )
-    record.stages.canonical = { status: 'observer-error', reason: 'status endpoint unavailable' }
+    record.stages.ttm = { status: 'observer-error', reason: 'status endpoint unavailable' }
     record.error = 'status endpoint unavailable'
-    record.canonicalObservation = {
+    record.ttmObservation = {
       api: 'wallet_getCallsStatus',
       pollCount: 4,
       errorClass: 'HttpRequestError',
@@ -297,30 +328,30 @@ describe('runOnce', () => {
     }
     expect(latency.values.some(value =>
       value.metricName === 'txe_bench_stage_latency_seconds_count'
-      && value.labels['stage'] === 'canonical',
+      && value.labels['stage'] === 'ttm',
     )).toBe(false)
 
     const outcomes = await metrics.stageOutcomesTotal.get()
     const canonicalError = outcomes.values.find(value =>
-      value.labels['stage'] === 'canonical'
+      value.labels['stage'] === 'ttm'
       && value.labels['outcome'] === 'observer-error',
     )
     expect(canonicalError?.value).toBe(1)
     expect(canonicalError?.labels['observer_api']).toBe('wallet_getCallsStatus')
-    expect(canonicalError?.labels['measurement_epoch']).toBe('base-flashblocks-v3')
+    expect(canonicalError?.labels['measurement_epoch']).toBe(MEASUREMENT_EPOCH)
   })
 
-  it('emits exactly one canonical outcome per attempt for reconciliation', async () => {
+  it('emits exactly one ttm outcome per attempt for reconciliation', async () => {
     const metrics = makeMetrics()
-    const success = makeRecord('alchemy-mav2-bso', '4337-bundler', { submit: 100, canonical: 2_000 }, 0)
-    success.canonicalObservation = {
+    const success = makeRecord('alchemy-mav2-bso', '4337-bundler', { submit: 100, ttm: 2_000 }, 0)
+    success.ttmObservation = {
       api: 'eth_getUserOperationReceipt',
       pollCount: 3,
       terminalStatus: 'success',
     }
     const timedOut = makeRecord('alchemy-mav2-bso', '4337-bundler', { submit: 110 }, 1)
-    timedOut.stages.canonical = { status: 'timed-out' }
-    timedOut.canonicalObservation = { api: 'eth_getUserOperationReceipt', pollCount: 10 }
+    timedOut.stages.ttm = { status: 'timed-out' }
+    timedOut.ttmObservation = { api: 'eth_getUserOperationReceipt', pollCount: 10 }
     const failed = makeFailedRecord('alchemy-mav2-bso', '4337-bundler', 2)
     const results = [makeProviderResult('alchemy-mav2-bso', '4337-bundler', [success, timedOut, failed], 1)]
 
@@ -329,7 +360,7 @@ describe('runOnce', () => {
     const attempts = (await metrics.attemptsTotal.get()).values
       .reduce((sum, value) => sum + value.value, 0)
     const canonicalOutcomes = (await metrics.stageOutcomesTotal.get()).values
-      .filter(value => value.labels['stage'] === 'canonical')
+      .filter(value => value.labels['stage'] === 'ttm')
       .reduce((sum, value) => sum + value.value, 0)
     expect(attempts).toBe(3)
     expect(canonicalOutcomes).toBe(3)
@@ -338,11 +369,11 @@ describe('runOnce', () => {
   it('logs one redacted structured benchmark_attempt event per record', async () => {
     const metrics = makeMetrics()
     const record = makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { submit: 80 }, 7)
-    record.stages.canonical = {
+    record.stages.ttm = {
       status: 'observer-error',
       reason: `request https://api.g.alchemy.com/v2/${CREDENTIALS.ALCHEMY_API_KEY} failed for ${CREDENTIALS.OWNER_PRIVATE_KEY}`,
     }
-    record.canonicalObservation = {
+    record.ttmObservation = {
       api: 'wallet_getCallsStatus',
       pollCount: 5,
       terminalStatus: '500',
@@ -368,7 +399,7 @@ describe('runOnce', () => {
     expect(event.terminal_status).toBe('500')
     expect(event.error_class).toBe('HttpRequestError')
     expect(event.stages.submit).toEqual({ outcome: 'ok', duration_ms: 80 })
-    expect(event.stages.canonical.outcome).toBe('observer-error')
+    expect(event.stages.ttm.outcome).toBe('observer-error')
     expect(attempts[0]).not.toContain(CREDENTIALS.ALCHEMY_API_KEY)
     expect(attempts[0]).not.toContain(CREDENTIALS.OWNER_PRIVATE_KEY)
   })
@@ -545,9 +576,9 @@ describe('runOnce', () => {
     expect(byNetwork.get('eth-mainnet')?.NEUTRAL_FLASHBLOCK_WS_URL).toBeUndefined()
   })
 
-  it('labels Base canonical samples with the Flashblocks observer', async () => {
+  it('labels Base ttm samples with the Flashblocks observer', async () => {
     const metrics = makeMetrics()
-    const records = [makeRecord('alchemy-mav2-bso', '4337-bundler', { canonical: 250 }, 0)]
+    const records = [makeRecord('alchemy-mav2-bso', '4337-bundler', { ttm: 250 }, 0)]
     const results = [makeProviderResult('alchemy-mav2-bso', '4337-bundler', records, 0)]
 
     await runOnce(CREDENTIALS, metrics, REGION, {
@@ -557,20 +588,20 @@ describe('runOnce', () => {
 
     const canonicalCount = (await metrics.stageLatency.get()).values.find(value =>
       value.metricName === 'txe_bench_stage_latency_seconds_count'
-      && value.labels['stage'] === 'canonical',
+      && value.labels['stage'] === 'ttm',
     )
     expect(canonicalCount?.labels['observer_api']).toBe('newFlashblockTransactions')
   })
 
   it('keeps Flashblock and confirmed-inclusion fallback samples in separate observer series', async () => {
     const metrics = makeMetrics()
-    const flashblockRecord = makeRecord('alchemy-mav2-bso', '4337-bundler', { canonical: 250 }, 0)
-    flashblockRecord.canonicalObservation = {
+    const flashblockRecord = makeRecord('alchemy-mav2-bso', '4337-bundler', { ttm: 250 }, 0)
+    flashblockRecord.ttmObservation = {
       api: 'newFlashblockTransactions',
       pollCount: 0,
     }
-    const confirmedRecord = makeRecord('alchemy-mav2-bso', '4337-bundler', { canonical: 1_750 }, 1)
-    confirmedRecord.canonicalObservation = {
+    const confirmedRecord = makeRecord('alchemy-mav2-bso', '4337-bundler', { ttm: 1_750 }, 1)
+    confirmedRecord.ttmObservation = {
       api: 'eth_getUserOperationReceipt',
       pollCount: 2,
       terminalStatus: 'success',
@@ -589,7 +620,7 @@ describe('runOnce', () => {
 
     const canonicalCounts = (await metrics.stageLatency.get()).values.filter(value =>
       value.metricName === 'txe_bench_stage_latency_seconds_count'
-      && value.labels['stage'] === 'canonical',
+      && value.labels['stage'] === 'ttm',
     )
     expect(canonicalCounts).toHaveLength(2)
     expect(canonicalCounts.find(value =>
@@ -605,9 +636,9 @@ describe('runOnce', () => {
     expect(attemptSeries.every(value => value.value === 1)).toBe(true)
   })
 
-  it('labels Base Wallet canonical samples with the provider status observer', async () => {
+  it('labels Base Wallet ttm samples with the provider status observer', async () => {
     const metrics = makeMetrics()
-    const records = [makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { canonical: 250 }, 0)]
+    const records = [makeRecord('alchemy-wallet-sendcalls', 'wallet-sendcalls', { ttm: 250 }, 0)]
     const results = [makeProviderResult('alchemy-wallet-sendcalls', 'wallet-sendcalls', records, 0)]
 
     await runOnce(CREDENTIALS, metrics, REGION, {
@@ -617,7 +648,7 @@ describe('runOnce', () => {
 
     const canonicalCount = (await metrics.stageLatency.get()).values.find(value =>
       value.metricName === 'txe_bench_stage_latency_seconds_count'
-      && value.labels['stage'] === 'canonical',
+      && value.labels['stage'] === 'ttm',
     )
     expect(canonicalCount?.labels['observer_api']).toBe('wallet_getCallsStatus')
   })
@@ -642,7 +673,7 @@ describe('runOnce', () => {
   it('logs a run_start event with network, region, run_count, and runnable providers before the run', async () => {
     const metrics = makeMetrics()
     const runner = mockGridRunner([])
-    // Alchemy + BSO configured → both monitored adapters are runnable.
+    // Alchemy + BSO configured → the one monitored adapter is runnable.
     const env: EnvSource = {
       NETWORK: 'base-mainnet',
       NEUTRAL_RPC_URL: 'https://mainnet.base.org',
@@ -666,8 +697,7 @@ describe('runOnce', () => {
     expect(start).toContain('"network":"base-mainnet"')
     expect(start).toContain('"region":"us-east-1"')
     expect(start).toContain('"run_count":20')
-    expect(start).toContain('alchemy-mav2-bso')
-    expect(start).toContain('alchemy-wallet-sendcalls')
+    expect(start).toContain('"providers":["alchemy-wallet-sendcalls"]')
     // run_start is emitted before run_complete
     expect(logs.findIndex(l => l.includes('"event":"run_start"')))
       .toBeLessThan(logs.findIndex(l => l.includes('"event":"run_complete"')))
@@ -685,7 +715,7 @@ describe('runOnce', () => {
       stages: {
         submit: { status: 'failed', reason: 'Policy does not support bundler sponsorship' },
         preconf: { status: 'not-observed' },
-        canonical: { status: 'not-observed' },
+        ttm: { status: 'not-observed' },
         providerReceipt: { status: 'not-observed' },
       },
       blockPositions: {},
@@ -708,7 +738,7 @@ describe('runOnce', () => {
         accountTypeLabel: 'Modular Account v2 (BSO)',
         runCount: 1,
         failureCount: 1,
-        stages: { submit: undefined, preconf: undefined, canonical: undefined, providerReceipt: undefined },
+        stages: { submit: undefined, preconf: undefined, ttm: undefined, providerReceipt: undefined },
       },
     }
     const runner = mockGridRunner([result])
@@ -737,23 +767,32 @@ describe('runOnce', () => {
 })
 
 describe('buildAdapterEntries', () => {
-  it('includes only alchemy-mav2-bso and alchemy-wallet-sendcalls when fully configured', () => {
+  it('monitors the Wallet path alone when fully configured', () => {
     const env: EnvSource = {
       ALCHEMY_API_KEY: 'k',
       ALCHEMY_POLICY_ID: 'p',
       ALCHEMY_BSO_POLICY_ID: 'bso-p',
     }
     const entries = buildAdapterEntries(env)
-    const ids = entries.map(e => e.row.id).sort()
-    expect(ids).toEqual(['alchemy-mav2-bso', 'alchemy-wallet-sendcalls'])
+    expect(entries.map(e => e.row.id)).toEqual(['alchemy-wallet-sendcalls'])
   })
 
-  it('excludes alchemy-mav2-bso when ALCHEMY_BSO_POLICY_ID is absent', () => {
+  // The 4337 adapter is still built and tested — it is only unmonitored, so the
+  // CLI can keep reproducing the cross-provider comparison on demand.
+  it('does not monitor the MAv2 BSO row even when its env is present', () => {
+    const env: EnvSource = {
+      ALCHEMY_API_KEY: 'k',
+      ALCHEMY_POLICY_ID: 'p',
+      ALCHEMY_BSO_POLICY_ID: 'bso-p',
+    }
+    expect(buildAdapterEntries(env).map(e => e.row.id)).not.toContain('alchemy-mav2-bso')
+  })
+
+  // Both monitored adapters sponsor through the BSO policy, so without it there
+  // is nothing to run — no falling back to the regular ALCHEMY_POLICY_ID.
+  it('yields no entries when ALCHEMY_BSO_POLICY_ID is absent', () => {
     const env: EnvSource = { ALCHEMY_API_KEY: 'k', ALCHEMY_POLICY_ID: 'p' }
-    const entries = buildAdapterEntries(env)
-    const ids = entries.map(e => e.row.id)
-    expect(ids).not.toContain('alchemy-mav2-bso')
-    expect(ids).toContain('alchemy-wallet-sendcalls')
+    expect(buildAdapterEntries(env)).toEqual([])
   })
 
   it('never includes non-target adapters even when their env vars are present', () => {

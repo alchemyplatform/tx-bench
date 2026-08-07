@@ -124,8 +124,8 @@ class AlchemyMAv2BSOAccountClient implements AccountClient {
     }
     // Field extraction / BigInt conversion can throw on a malformed receipt
     // (e.g. missing blockNumber). Wrap it so the real pollCount is preserved —
-    // an uncaught throw here would propagate to service.ts canonicalPromise.catch
-    // and be recorded with pollCount: 0, losing the polls already incurred.
+    // an uncaught throw here would be caught by the service's observer error
+    // handler and recorded with pollCount: 0, losing the polls already incurred.
     try {
       const blockNumber = response.receipt?.blockNumber
       if (!response.success) {

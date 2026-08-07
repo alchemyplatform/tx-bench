@@ -49,6 +49,7 @@ function collectSecrets(config: Config): Set<string> {
 
   add(config.providers.alchemy?.apiKey)
   add(config.providers.alchemy?.policyId)
+  add(config.providers.alchemy?.bsoPolicyId ?? undefined)
   add(config.providers.pimlico?.apiKey)
   add(config.providers.pimlico?.policyId)
   add(config.providers.zerodev?.apiKey)
@@ -80,7 +81,7 @@ export type StageRow = {
   prepare?: { median: number; p95: number; count: number }
   send?: { median: number; p95: number; count: number }
   preconf?: { median: number; p95: number; count: number }
-  canonical?: { median: number; p95: number; count: number }
+  ttm?: { median: number; p95: number; count: number }
   preconfAvailable: boolean
 }
 

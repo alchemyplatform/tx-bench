@@ -3,7 +3,7 @@ import { aggregateRuns } from './aggregate.js'
 import { serializeErrorRedacted } from './serialize.js'
 import type { Config } from './config.js'
 import type { ProtocolClass, ProviderMetrics, ProviderRow, RunRecord } from './contracts.js'
-import type { ProviderAdapter } from './providers/types.js'
+import type { ProviderAdapter, StatusStages } from './providers/types.js'
 import type { CanonicalOracle, CanonicalResult } from './oracle/canonical.js'
 import type { FlashblockOracle, FlashblockResult } from './oracle/flashblocks.js'
 
@@ -26,10 +26,6 @@ export type ProgressEvent =
   | { kind: 'provider-done'; provider: string; iteration: number; status: 'failed'; error: string }
   | { kind: 'iteration-done'; iteration: number }
 
-export type RunBenchmarkOptions = {
-  canonicalSource?: 'default' | 'earliest-signal'
-}
-
 // ── Service ───────────────────────────────────────────────────────────────────
 
 export async function runBenchmarkGrid(
@@ -38,14 +34,13 @@ export async function runBenchmarkGrid(
   canonicalOracle: CanonicalOracle,
   flashblockOracle: FlashblockOracle,
   onProgress?: (event: ProgressEvent) => void,
-  options: RunBenchmarkOptions = {},
 ): Promise<ProviderRunResult[]> {
-  const useEarliestSignalCanonical = options.canonicalSource === 'earliest-signal'
-
+  const alchemyCfg = config.providers.alchemy
   const serializeBenchmarkError = (error: unknown): string => serializeErrorRedacted(
     error,
     config.ownerPrivateKey,
-    config.providers.alchemy ? [config.providers.alchemy.apiKey] : [],
+    alchemyCfg ? [alchemyCfg.apiKey] : [],
+    alchemyCfg ? [alchemyCfg.policyId, alchemyCfg.bsoPolicyId ?? ''] : [],
   ).message
 
   // Build account clients for all providers upfront (validates config once)
@@ -62,22 +57,6 @@ export async function runBenchmarkGrid(
       }
     })
   )
-
-  // Only modalities without a provider-native early-inclusion observer depend on
-  // the shared Flashblock subscription for their canonical stage. Pre-warm it
-  // before any timed write, but keep confirmed inclusion available as the
-  // fallback if readiness fails. (Every modality still uses the Flashblock
-  // subscription for the `preconf` stage regardless.)
-  const needsRawFlashblocks = useEarliestSignalCanonical && providers.some(({ row }) => {
-    const client = clientMap.get(row.id)
-    return client != null && client.earlyInclusionObserver == null
-  })
-  const rawFlashblocksReady = needsRawFlashblocks
-    ? await flashblockOracle.ready(config.timeouts.preconfMs).then(
-        () => true,
-        () => false,
-      )
-    : false
 
   // Bootstrap phase: call ensureDeployed() on each client that exposes it.
   // This is excluded from all metrics (runs before the timed loop). A bootstrap
@@ -138,20 +117,16 @@ export async function runBenchmarkGrid(
           const sponsored = await client.sendSponsored()
           const acceptedAtMs = sponsored.acceptedAtMs ?? performance.now()
 
-          // Neither canonical nor preconfirmation observation is allowed to
+          // Neither the ttm nor the preconfirmation observation is allowed to
           // rewrite an already-accepted submission as submit-failed.
-          let canonical: CanonicalResult
+          let ttm: CanonicalResult
+          let firstStatus: CanonicalResult | undefined
           let preconf: FlashblockResult
 
-          const observerApi = client.canonicalObserver?.api ?? 'generic-log-scan'
-          const observeConfirmedCanonical = (): Promise<CanonicalResult> => (
-            client.canonicalObserver
-              ? client.canonicalObserver.watch(
-                  sponsored.canonicalIdentifier ?? sponsored.userOpHash,
-                  config.timeouts.canonicalMs,
-                )
-              : canonicalOracle.watch(sponsored.userOpHash, fromBlock!, config.timeouts.canonicalMs)
-          ).catch((error): CanonicalResult => ({
+          const statusObserver = client.statusStagesObserver
+          const observerApi = statusObserver?.api ?? client.canonicalObserver?.api ?? 'generic-log-scan'
+          const identifier = sponsored.canonicalIdentifier ?? sponsored.userOpHash
+          const observerError = (error: unknown): CanonicalResult => ({
             status: 'observer-error',
             reason: serializeBenchmarkError(error),
             observation: {
@@ -159,49 +134,41 @@ export async function runBenchmarkGrid(
               pollCount: 0,
               errorClass: error instanceof Error ? error.name : typeof error,
             },
-          }))
+          })
 
-          if (useEarliestSignalCanonical && client.earlyInclusionObserver) {
-            const earlyObserverApi = client.earlyInclusionObserver.api
-            const [observedCanonical, observedPreconf] = await Promise.all([
-              client.earlyInclusionObserver.watch(
-                sponsored.canonicalIdentifier ?? sponsored.userOpHash,
-                config.timeouts.preconfMs,
-              ).catch((error): CanonicalResult => ({
-                status: 'observer-error',
-                reason: serializeBenchmarkError(error),
-                observation: {
-                  api: earlyObserverApi,
-                  pollCount: 0,
-                  errorClass: error instanceof Error ? error.name : typeof error,
-                },
-              })),
-              flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs)
-                .catch(() => ({ status: 'not-observed' as const })),
-            ])
-            canonical = observedCanonical
-            preconf = observedPreconf
-          } else if (useEarliestSignalCanonical) {
-            const [confirmedCanonical, observedPreconf] = await Promise.all([
-              observeConfirmedCanonical(),
-              rawFlashblocksReady
-                ? flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs)
-                    .catch(() => ({ status: 'not-observed' as const }))
-                : Promise.resolve({ status: 'not-observed' as const }),
-            ])
-            preconf = observedPreconf
-            canonical = preconf.status === 'ok'
-              ? canonicalFromFlashblock(preconf)
-              : confirmedCanonical
-          } else {
-            const [observedCanonical, observedPreconf] = await Promise.all([
-              observeConfirmedCanonical(),
-              flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs)
-                .catch(() => ({ status: 'not-observed' as const })),
-            ])
-            canonical = observedCanonical
-            preconf = observedPreconf
+          // Status stages come from ONE poll stream, not two. firstStatus and
+          // ttm describe the same response whenever the provider emits no
+          // early terminal signal, so polling twice would make them disagree
+          // about it by up to one poll interval.
+          // Modalities without a staged status API report ttm only.
+          type ObservedStages = { firstStatus?: CanonicalResult; ttm: CanonicalResult }
+          const observeStatusStages = (): Promise<ObservedStages> => {
+            if (statusObserver) {
+              return statusObserver.watch(identifier, config.timeouts.canonicalMs)
+                .catch((error): StatusStages => {
+                  const failed = observerError(error)
+                  return { firstStatus: failed, ttm: failed }
+                })
+            }
+            return (
+              client.canonicalObserver
+                ? client.canonicalObserver.watch(identifier, config.timeouts.canonicalMs)
+                : canonicalOracle.watch(sponsored.userOpHash, fromBlock!, config.timeouts.canonicalMs)
+            )
+              .catch(observerError)
+              .then((result): ObservedStages => ({ ttm: result }))
           }
+
+          // preconf is measured concurrently and independently — it is the
+          // neutral Flashblocks oracle, not a status poll.
+          const [stages, observedPreconf] = await Promise.all([
+            observeStatusStages(),
+            flashblockOracle.watch(sponsored.userOpHash, config.timeouts.preconfMs)
+              .catch(() => ({ status: 'not-observed' as const })),
+          ])
+          ttm = stages.ttm
+          firstStatus = stages.firstStatus
+          preconf = observedPreconf
 
           records.push(buildRunRecord({
             kind: 'success',
@@ -209,8 +176,9 @@ export async function runBenchmarkGrid(
             accountTypeLabel: row.accountTypeLabel,
             sponsored,
             acceptedAtMs,
-            canonical,
+            ttm,
             preconf,
+            ...(firstStatus ? { firstStatus } : {}),
             runIndex: i,
           }))
           onProgress?.({ kind: 'provider-done', provider: row.id, iteration: i, status: 'ok' })
@@ -239,20 +207,6 @@ export async function runBenchmarkGrid(
       metrics: aggregateRuns(row.id, row.protocolClass as ProtocolClass, row.accountTypeLabel, records),
     }
   })
-}
-
-function canonicalFromFlashblock(
-  result: Extract<FlashblockResult, { status: 'ok' }>,
-): CanonicalResult {
-  return {
-    status: 'ok',
-    blockNumber: result.blockNumber,
-    tMs: result.tMs,
-    observation: {
-      api: 'newFlashblockTransactions',
-      pollCount: 0,
-    },
-  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
